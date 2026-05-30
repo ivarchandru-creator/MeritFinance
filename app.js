@@ -2343,34 +2343,40 @@ function renderDetailPanel() {
       </div>
     `;
 
+    const paidDatesSet2 = new Set(c.dailyPaidDates || []);
+    const rate2 = Number(c.dailyRate) || 0;
     const sortedDates = [...activeDates].reverse();
-    const gridRows = sortedDates.map(d => {
-      const isPaid = paidDatesSet2.has(d);
-      const activeP = getActivePrincipalForDate(c, d);
-      const dayInterest = (activeP * rate2) / 100;
-      
-      return `
-        <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.05)">
-          <div style="display:flex;flex-direction:column;gap:2px">
-            <span style="font-size:12px;font-weight:600;color:var(--text-primary)">${fmtDate(d)}</span>
-            <span style="font-size:10px;color:var(--text-muted)">
-              ${langIsTA ? 'அசல்: ' : 'Principal: '}${fmt(activeP)}
-            </span>
+    let gridRows = '';
+    
+    if (typeof paidDatesSet2 !== 'undefined' && paidDatesSet2) {
+      gridRows = sortedDates.map(d => {
+        const isPaid = paidDatesSet2.has(d);
+        const activeP = getActivePrincipalForDate(c, d);
+        const dayInterest = rate2;
+        
+        return `
+          <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.05)">
+            <div style="display:flex;flex-direction:column;gap:2px">
+              <span style="font-size:12px;font-weight:600;color:var(--text-primary)">${fmtDate(d)}</span>
+              <span style="font-size:10px;color:var(--text-muted)">
+                ${langIsTA ? 'அசல்: ' : 'Principal: '}${fmt(activeP)}
+              </span>
+            </div>
+            <div style="display:flex;align-items:center;gap:12px">
+              <span style="font-size:12px;font-weight:700;color:var(--emerald-400)">${fmt(dayInterest)}</span>
+              <input type="checkbox" ${isPaid ? 'checked' : ''} onclick="toggleDailyDatePaid('${c.id}', '${d}')" style="cursor:pointer;width:16px;height:16px;accent-color:var(--primary-color)" />
+            </div>
           </div>
-          <div style="display:flex;align-items:center;gap:12px">
-            <span style="font-size:12px;font-weight:700;color:var(--emerald-400)">${fmt(dayInterest)}</span>
-            <input type="checkbox" ${isPaid ? 'checked' : ''} onclick="toggleDailyDatePaid('${c.id}', '${d}')" style="cursor:pointer;width:16px;height:16px;accent-color:var(--primary-color)" />
-          </div>
-        </div>
-      `;
-    }).join('');
+        `;
+      }).join('');
+    }
     
     const dailyGridHtml = `
       <div class="detail-section ledger-card" style="background:rgba(255,255,255,0.02);border:1px solid var(--border-card);border-radius:12px;padding:12px;margin-top:14px">
         <div class="detail-section-title" style="margin-bottom:8px;display:flex;justify-content:space-between;align-items:center">
           <span>${langIsTA ? 'தினசரி கண்காணிப்பு கட்டம்' : 'Daily Interest Tracking Grid'}</span>
           <span style="font-size:11px;color:var(--text-muted)">
-            ${paidDatesSet2.size} / ${activeDates.length} ${langIsTA ? 'நாட்கள் செலுத்தப்பட்டது' : 'days paid'}
+            ${(typeof paidDatesSet2 !== 'undefined' && paidDatesSet2) ? paidDatesSet2.size : 0} / ${activeDates.length} ${langIsTA ? 'நாட்கள் செலுத்தப்பட்டது' : 'days paid'}
           </span>
         </div>
         <div style="max-height:200px;overflow-y:auto;padding-right:4px">
