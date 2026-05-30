@@ -2322,19 +2322,17 @@ function updateProfitLedgerData() {
       ownerFraction = customDailyRate > 0 ? (Math.max(0, customDailyRate - dayInv - dayAgent) / customDailyRate) : 0;
     }
     
+    const interestPaid = getCustomerPaidInterest(c);
+    remainingInterestDue = Math.max(0, accruedInterest - interestPaid);
+    
     if (hasManualPayments) {
-      const interestPaid = getCustomerPaidInterest(c);
-      remainingInterestDue = Math.max(0, accruedInterest - interestPaid);
-      
       const manualInterestPaid = (c.payments || [])
         .filter(p => (p.type === 'interest' || p.type === 'Interest') && (p.status === 'Paid' || !p.status) && p.id && p.id.startsWith('pay_') && !p.id.includes('init'))
         .reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
       
       realized = manualInterestPaid * ownerFraction;
     } else {
-      // Profit remains zero, pending is full real-time accrued interest up to today
       realized = 0;
-      remainingInterestDue = accruedInterest;
     }
     
     totalRealizedProfit += realized;
@@ -2427,19 +2425,17 @@ function downloadUnpaidInterestPDF() {
       ownerFraction = customDailyRate > 0 ? (Math.max(0, customDailyRate - dayInv - dayAgent) / customDailyRate) : 0;
     }
     
+    const interestPaid = getCustomerPaidInterest(c);
+    remainingInterestDue = Math.max(0, accruedInterest - interestPaid);
+    
     if (hasManualPayments) {
-      const interestPaid = getCustomerPaidInterest(c);
-      remainingInterestDue = Math.max(0, accruedInterest - interestPaid);
-      
       const manualInterestPaid = (c.payments || [])
         .filter(p => (p.type === 'interest' || p.type === 'Interest') && (p.status === 'Paid' || !p.status) && p.id && p.id.startsWith('pay_') && !p.id.includes('init'))
         .reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
       
       realized = manualInterestPaid * ownerFraction;
     } else {
-      // Profit remains zero, pending is full real-time accrued interest up to today
       realized = 0;
-      remainingInterestDue = accruedInterest;
     }
     
     totalRealizedProfit += realized;
