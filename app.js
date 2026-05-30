@@ -1254,10 +1254,9 @@ function getDailyLoanMetrics(c, days) {
 
 function getDailyRates(c) {
   if (!c) return { rate: 0, invPayout: 0, agentPayout: 0, ownerDailyRate: 0 };
-  const isAjaj = c.name && c.name.toLowerCase().includes('ajaj');
-  const rate = isAjaj ? 500 : (Number(c.dailyRate) || 0);
-  const invPayout = isAjaj ? 0 : (c.dailyMethod === 'custom' ? (Number(c.dailyInvestorPayout) || 0) : (Number(c.investorSplitPercent) || 0));
-  const agentPayout = c.hasAgent ? (isAjaj ? 0 : (c.dailyMethod === 'custom' ? (Number(c.dailyAgentPayout) || 0) : (Number(c.agentSplitPercent) || 0))) : 0;
+  const rate = Number(c.dailyRate) || 0;
+  const invPayout = c.dailyMethod === 'custom' ? (Number(c.dailyInvestorPayout) || 0) : (Number(c.investorSplitPercent) || 0);
+  const agentPayout = c.hasAgent ? (c.dailyMethod === 'custom' ? (Number(c.dailyAgentPayout) || 0) : (Number(c.agentSplitPercent) || 0)) : 0;
   const ownerDailyRate = Math.max(0, rate - invPayout - agentPayout);
   return { rate, invPayout, agentPayout, ownerDailyRate };
 }
@@ -1265,7 +1264,6 @@ function getDailyRates(c) {
 function getRealizedProfitForMonth(monthStr) {
   const paymentHistoryArray = [];
   for (const c of state.customers) {
-    const isAjaj = c.name && c.name.toLowerCase().includes('ajaj');
     const { rate: dRate, invPayout: dInv, agentPayout: dAgent } = getDailyRates(c);
     
     const payments = c.payments || [];
@@ -1280,9 +1278,7 @@ function getRealizedProfitForMonth(monthStr) {
         const agent = c.hasAgent ? amt * (0.5 / 3) : 0;
         ownerShare = Math.max(0, gross - inv - agent);
       } else {
-        if (isAjaj) {
-          ownerShare = amt;
-        } else if (dRate > 0) {
+        if (dRate > 0) {
           const daysFactor = amt / dRate;
           const inv = dInv * daysFactor;
           const agent = dAgent * daysFactor;
@@ -1519,7 +1515,6 @@ function prepopulateMonthlyArchives() {
   const currentMonth = getLocalToday().slice(0, 7);
   
   for (const c of state.customers) {
-    const isAjaj = c.name && c.name.toLowerCase().includes('ajaj');
     const { rate: dRate, invPayout: dInv, agentPayout: dAgent, ownerDailyRate: dOwner } = getDailyRates(c);
     
     const payments = c.payments || [];
@@ -1562,11 +1557,7 @@ function prepopulateMonthlyArchives() {
         let agent = 0;
         let net = amt;
         
-        if (isAjaj) {
-          inv = 0;
-          agent = 0;
-          net = amt;
-        } else if (dRate > 0) {
+        if (dRate > 0) {
           const daysFactor = amt / dRate;
           inv = dInv * daysFactor;
           agent = dAgent * daysFactor;
@@ -2312,11 +2303,10 @@ function updateProfitLedgerData() {
       const rate = MONTHLY_CUSTOMER_RATE - INVESTOR_RATE - (c.hasAgent ? AGENT_COMMISSION_RATE : 0);
       ownerFraction = rate / MONTHLY_CUSTOMER_RATE;
     } else {
-      const isAjaj = c.name && c.name.toLowerCase().includes('ajaj');
-      const customDailyRate = isAjaj ? 500 : (Number(c.dailyRate) || 0);
+      const customDailyRate = Number(c.dailyRate) || 0;
       const startD = c.startDate || c.createdAt?.slice(0, 10) || getLocalToday();
-      const todayStr = getLocalToday();
-      const elapsedDays = daysBetweenInclusive(startD, todayStr);
+      const endD = c.endDate || getLocalToday();
+      const elapsedDays = daysBetweenInclusive(startD, endD);
       accruedInterest = elapsedDays * customDailyRate;
       
       const dayInv = c.dailyMethod === 'custom' ? (Number(c.dailyInvestorPayout) || 0) : (Number(c.investorSplitPercent) || 0);
@@ -2415,11 +2405,10 @@ function downloadUnpaidInterestPDF() {
       const rate = MONTHLY_CUSTOMER_RATE - INVESTOR_RATE - (c.hasAgent ? AGENT_COMMISSION_RATE : 0);
       ownerFraction = rate / MONTHLY_CUSTOMER_RATE;
     } else {
-      const isAjaj = c.name && c.name.toLowerCase().includes('ajaj');
-      const customDailyRate = isAjaj ? 500 : (Number(c.dailyRate) || 0);
+      const customDailyRate = Number(c.dailyRate) || 0;
       const startD = c.startDate || c.createdAt?.slice(0, 10) || getLocalToday();
-      const todayStr = getLocalToday();
-      const elapsedDays = daysBetweenInclusive(startD, todayStr);
+      const endD = c.endDate || getLocalToday();
+      const elapsedDays = daysBetweenInclusive(startD, endD);
       accruedInterest = elapsedDays * customDailyRate;
       
       const dayInv = c.dailyMethod === 'custom' ? (Number(c.dailyInvestorPayout) || 0) : (Number(c.investorSplitPercent) || 0);
@@ -3726,7 +3715,7 @@ function renderDetailPanel() {
     const remainingTotal = remainingP + remainingInterestDue;
 
     // --- REQUIREMENT 3: Live Realized Profit Cumulative Tracker ---
-    const ownerFraction = customDailyRate > 0 ? ((Math.max(0, customDailyRate - (isAjaj ? 0 : ((c.dailyMethod === 'custom' ? Number(c.dailyInvestorPayout) : Number(c.investorSplitPercent)) || 0)) - (c.hasAgent ? (isAjaj ? 0 : ((c.dailyMethod === 'custom' ? Number(c.dailyAgentPayout) : Number(c.agentSplitPercent)) || 0)) : 0))) / customDailyRate) : 0;
+    const ownerFraction = customDailyRate > 0 ? ((Math.max(0, customDailyRate - ((c.dailyMethod === 'custom' ? Number(c.dailyInvestorPayout) : Number(c.investorSplitPercent)) || 0) - (c.hasAgent ? ((c.dailyMethod === 'custom' ? Number(c.dailyAgentPayout) : Number(c.agentSplitPercent)) || 0) : 0))) / customDailyRate) : 0;
     const realizedOwnerProfit = (c.payments || [])
       .filter(p => p.type === 'interest')
       .reduce((sum, p) => sum + (p.amount * ownerFraction), 0);
