@@ -1022,14 +1022,12 @@ function agentCommission(principalOrCustomer, customRate, days) {
       if (!c.hasAgent) return 0;
       return (p * AGENT_COMMISSION_RATE) / 100;
     } else { // daily — custom/flexible rate track
-      if (c.dailyMethod === 'custom') {
-        const d = days !== undefined ? days : 30;
-        return (Number(c.dailyAgentPayout) || 0) * d;
-      }
       const d = days !== undefined ? days : 30;
-      const gross = dailyInterest(p, Number(c.dailyRate) || 0, d);
-      const agPercent = c.hasAgent ? (c.agentSplitPercent !== undefined && c.agentSplitPercent !== null ? Number(c.agentSplitPercent) : 25) : 0;
-      return (gross * agPercent) / 100;
+      if (!c.hasAgent) return 0;
+      const agentPayout = c.dailyMethod === 'custom'
+        ? (Number(c.dailyAgentPayout) || 0)
+        : (Number(c.agentSplitPercent) || 0);
+      return agentPayout * d;
     }
   }
   const p = Number(principalOrCustomer);
@@ -3633,7 +3631,7 @@ function selectLoanType(type) {
   
   // Agent section always visible for both loan types
   document.getElementById('agentSection').style.display = 'block';
-  updateCommissionTypeVisibility();
+  updateAgentFieldsVisibility();
   
   if (type === 'monthly') {
     document.getElementById('rateInfoBox').innerHTML = `
@@ -3659,9 +3657,7 @@ function selectLoanType(type) {
 function setAgentToggle(on) {
   const sw = document.getElementById('agentSwitch');
   if (sw) sw.classList.toggle('on', on);
-  const agentNameRow = document.getElementById('agentNameRow');
-  if (agentNameRow) agentNameRow.style.display = on ? 'grid' : 'none';
-  updateCommissionTypeVisibility();
+  updateAgentFieldsVisibility();
   
   document.getElementById('agentInfoBox').innerHTML = on
     ? `<div class="alert alert-success" style="margin:0"><span class="alert-icon"><svg class="ui-icon" style="width:16px;height:16px;color:var(--emerald-400)" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg></span><div>Split: 2% investor + <strong>0.5% agent</strong> + 0.5% owner</div></div>`
@@ -3676,11 +3672,30 @@ function setAgentToggle(on) {
   }
 }
 
-function updateCommissionTypeVisibility() {
+function updateAgentFieldsVisibility() {
   const isDaily = document.getElementById('ltDaily').classList.contains('selected');
   const isAgentOn = document.getElementById('agentSwitch')?.classList.contains('on');
-  const row = document.getElementById('agentCommissionTypeRow');
-  if (row) row.style.display = (isDaily && isAgentOn) ? 'block' : 'none';
+  
+  const nameRow = document.getElementById('agentNameRow');
+  const rateGroup = document.getElementById('agentCommissionRateGroup');
+  const commissionTypeRow = document.getElementById('agentCommissionTypeRow');
+  
+  if (nameRow) {
+    nameRow.style.display = isAgentOn ? 'grid' : 'none';
+    if (isDaily) {
+      nameRow.classList.add('cols-1');
+    } else {
+      nameRow.classList.remove('cols-1');
+    }
+  }
+  
+  if (rateGroup) {
+    rateGroup.style.display = (!isDaily && isAgentOn) ? 'block' : 'none';
+  }
+  
+  if (commissionTypeRow) {
+    commissionTypeRow.style.display = 'none'; // Always hide it for both since Daily is Rupee-only and Monthly is fixed %
+  }
 }
 
 function selectCommissionType(type) {
@@ -3966,7 +3981,7 @@ function renderAgents() {
       <div style="border-top:1px solid var(--border-default);padding-top:10px">
         ${agent.customers.map(c => `
           <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.04);font-size:13px">
-            <span style="color:var(--text-secondary)">${escHtml(c.name)} <span class="tag">#${escHtml(c.adaguId)}</span>${c.agentCommissionType === 'daily' ? ' <span class="tag" style="color:var(--amber-400);border-color:var(--amber-400)">' + (c.agentCommissionRate || 0.5) + '%/day</span>' : ''}</span>
+            <span style="color:var(--text-secondary)">${escHtml(c.name)} <span class="tag">#${escHtml(c.adaguId)}</span>${c.loanType === 'daily' ? ' <span class="tag" style="color:var(--amber-400);border-color:var(--amber-400)">₹' + (c.agentSplitPercent || 0) + '/day</span>' : ''}</span>
             <span style="color:var(--violet-400);font-weight:600">${fmt(agentCommission(c))}</span>
           </div>
         `).join('')}
