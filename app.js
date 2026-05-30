@@ -3269,10 +3269,18 @@ function renderDetailPanel() {
           <div class="stat-val">${c.loanType === 'monthly' ? fmt(monthlyInterest(p), true) + '/' + (state.lang === 'ta' ? 'மா' : 'mo') : '₹' + c.dailyRate + '/' + (state.lang === 'ta' ? 'நாள்' : 'day')}</div>
         </div>
         <div class="stat-item">
-          <div class="stat-key">${t('days_active')}</div>
-          <div class="stat-val">${c.loanType === 'daily' 
-            ? daysBetweenInclusive(c.startDate || c.createdAt?.slice(0,10), c.endDate || getLocalToday())
-            : daysBetween(c.startDate || c.createdAt?.slice(0,10), c.endDate || getLocalToday())}</div>
+          <div class="stat-key">
+            ${c.loanType === 'monthly'
+              ? (state.lang === 'ta' ? 'செயலில் உள்ள மாதங்கள்' : 'MONTHS ACTIVE')
+              : (state.lang === 'ta' ? 'செயலில் உள்ள நாட்கள்' : 'DAYS ACTIVE')
+            }
+          </div>
+          <div class="stat-val">
+            ${c.loanType === 'monthly' 
+              ? getCurrentMonthIndex(c)
+              : daysBetweenInclusive(c.startDate || c.createdAt?.slice(0,10), c.endDate || getLocalToday())
+            }
+          </div>
         </div>
       </div>
 
