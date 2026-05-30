@@ -3029,33 +3029,32 @@ function renderDetailPanel() {
     `;
 
     const breakdownSectionHtml = `
-      <div class="detail-section ledger-card" style="background:rgba(255,255,255,0.02);border:1px solid var(--border-card);border-radius:12px;padding:12px;margin-top:14px">
-        <div class="detail-section-title" style="margin-bottom:10px">${langIsTA ? 'இருப்பு விவரம்' : 'Balance Breakdown'}</div>
-        <div style="display:flex;flex-direction:column;gap:6px;font-size:13px">
-          <div style="display:flex;justify-content:space-between">
-            <span style="color:var(--text-secondary)">${langIsTA ? 'தொடக்க அசல்' : 'Starting Principal'}</span>
-            <span style="font-weight:600">${fmt(p)}</span>
+      <div class="detail-section ledger-card" style="margin-top:14px">
+        <div class="detail-section-title" style="margin-bottom:12px">${langIsTA ? 'இருப்பு விவரம்' : 'Balance Breakdown'}</div>
+        <div class="fintech-cards-grid">
+          <!-- Loan Amount Card -->
+          <div class="fintech-card card-loan-amount">
+            <span class="fintech-card-label">${langIsTA ? 'கடன் தொகை' : 'LOAN AMOUNT'}</span>
+            <span class="fintech-card-value">${fmt(p)}</span>
           </div>
-          <div style="display:flex;justify-content:space-between">
-            <span style="color:var(--text-secondary)">${langIsTA ? 'செலுத்தப்பட்ட அசல்' : 'Principal Paid'}</span>
-            <span style="font-weight:600;color:var(--rose-400)">-${fmt(c.paidPrincipal || 0)}</span>
+
+          <!-- Interest Collected Card -->
+          <div class="fintech-card card-interest-collected">
+            <span class="fintech-card-label">${langIsTA ? 'வசூலிக்கப்பட்ட வட்டி' : 'INTEREST COLLECTED'}</span>
+            <span class="fintech-card-value">${fmt(c.paidInterest || 0)}</span>
           </div>
-          <div style="display:flex;justify-content:space-between;border-bottom:1px dashed var(--border-default);padding-bottom:4px;margin-bottom:4px">
-            <span style="color:var(--text-primary);font-weight:500">${langIsTA ? 'நிலுவையில் உள்ள அசல்' : 'Active Principal'}</span>
-            <span style="font-weight:600;color:var(--blue-400)">${fmt(remainingP)}</span>
+
+          <!-- Pending Interest Card -->
+          <div class="fintech-card card-pending-interest">
+            <span class="fintech-card-label">${langIsTA ? 'நிலுவையில் உள்ள வட்டி' : 'PENDING INTEREST'}</span>
+            <span class="fintech-card-value" id="valRemainingInterestDue" data-base-value="${remainingI}">${remainingI >= 0 ? '+' : ''}${fmt(remainingI)}</span>
           </div>
-          <div style="display:flex;justify-content:space-between">
-            <span style="color:var(--text-secondary)">${langIsTA ? 'மொத்த வட்டி' : 'Total Accrued Interest'}</span>
-            <span style="font-weight:600;color:var(--emerald-400)">+${fmt(interestAccrued)}</span>
-          </div>
-          <div style="display:flex;justify-content:space-between;border-bottom:1px dashed var(--border-default);padding-bottom:4px;margin-bottom:4px">
-            <span style="color:var(--text-secondary)">${langIsTA ? 'செலுத்தப்பட்ட வட்டி' : 'Interest Paid'}</span>
-            <span style="font-weight:600;color:var(--rose-400)">-${fmt(c.paidInterest || 0)}</span>
-          </div>
-          <div style="display:flex;justify-content:space-between;border-top:1px solid var(--border-default);padding-top:8px;margin-top:4px;font-size:15px;font-weight:800">
-            <span style="color:var(--text-primary)">${langIsTA ? 'நிலுவை தொகை' : 'Remaining Balance'}</span>
-            <span style="color:var(--amber-400)">${fmt(remainingTotal)}</span>
-          </div>
+        </div>
+
+        <!-- Total Outstanding Card (Main anchor visual at bottom) -->
+        <div class="fintech-card card-total-outstanding">
+          <span class="fintech-card-label">${langIsTA ? 'நிலுவை தொகை' : 'TOTAL OUTSTANDING'}</span>
+          <span class="fintech-card-value">${fmt(remainingTotal)}</span>
         </div>
       </div>
     `;
@@ -3158,30 +3157,38 @@ function renderDetailPanel() {
     const roundedRealizedOwnerProfit = Math.round(realizedOwnerProfit);
 
     const breakdownSectionHtml = `
-      <div class="detail-section ledger-card" style="background:rgba(255,255,255,0.02);border:1px solid var(--border-card);border-radius:12px;padding:12px;margin-top:14px">
-        <div class="detail-section-title" style="margin-bottom:10px">${langIsTA ? 'இருப்பு விவரம்' : 'Balance Breakdown'}</div>
-        <div style="display:flex;flex-direction:column;gap:6px;font-size:13px">
-          <div style="display:flex;justify-content:space-between">
-            <span style="color:var(--text-secondary)">${langIsTA ? 'நிலுவையில் உள்ள அசல்' : 'Active Principal'}</span>
-            <span style="font-weight:600;color:var(--blue-400)">${fmt(remainingP)}</span>
+      <div class="detail-section ledger-card" style="margin-top:14px">
+        <div class="detail-section-title" style="margin-bottom:12px">${langIsTA ? 'இருப்பு விவரம்' : 'Balance Breakdown'}</div>
+        <div class="fintech-cards-grid">
+          <!-- Loan Amount Card -->
+          <div class="fintech-card card-loan-amount">
+            <span class="fintech-card-label">${langIsTA ? 'கடன் தொகை' : 'LOAN AMOUNT'}</span>
+            <span class="fintech-card-value">${fmt(p)}</span>
           </div>
-          <div style="display:flex;justify-content:space-between">
-            <span style="color:var(--text-secondary)">${langIsTA ? 'செலுத்தப்பட்ட வட்டி' : 'Interest Paid'}</span>
-            <span style="font-weight:600;color:var(--rose-400)">-${fmt(interestPaid)}</span>
+
+          <!-- Interest Collected Card -->
+          <div class="fintech-card card-interest-collected">
+            <span class="fintech-card-label">${langIsTA ? 'வசூலிக்கப்பட்ட வட்டி' : 'INTEREST COLLECTED'}</span>
+            <span class="fintech-card-value">${fmt(interestPaid)}</span>
           </div>
-          <div style="display:flex;justify-content:space-between">
-            <span style="color:var(--text-secondary)">${langIsTA ? 'மீதமுள்ள வட்டி நிலுவை' : 'Remaining Interest Due'}</span>
-            <span style="font-weight:600;color:var(--rose-400)" id="valRemainingInterestDue" data-base-value="${remainingInterestDue}">${remainingInterestDue >= 0 ? '+' : ''}${fmt(remainingInterestDue)}</span>
+
+          <!-- Pending Interest Card -->
+          <div class="fintech-card card-pending-interest">
+            <span class="fintech-card-label">${langIsTA ? 'நிலுவையில் உள்ள வட்டி' : 'PENDING INTEREST'}</span>
+            <span class="fintech-card-value" id="valRemainingInterestDue" data-base-value="${remainingInterestDue}">${remainingInterestDue >= 0 ? '+' : ''}${fmt(remainingInterestDue)}</span>
           </div>
-          <div style="display:flex;justify-content:space-between;border-top:1px solid var(--border-default);padding-top:8px;margin-top:4px;font-size:15px;font-weight:800">
-            <span style="color:var(--text-primary)">${langIsTA ? 'நிலுவை தொகை' : 'Remaining Balance'}</span>
-            <span style="color:var(--amber-400)">${fmt(remainingTotal)}</span>
-          </div>
-          <!-- Realized Owner Profit Cumulative Tracker -->
-          <div style="display:flex;justify-content:space-between;border-top:2px solid var(--emerald-500);padding-top:10px;margin-top:8px;font-size:15px;font-weight:800;background:rgba(16,185,129,0.05);padding:8px;border-radius:6px">
-            <span style="color:var(--emerald-400)">${langIsTA ? 'மொத்த உரிமையாளர் லாபம் (₹)' : 'Total Realized Owner Profit (₹)'}</span>
-            <span style="color:var(--emerald-400)" id="realizedOwnerProfit">₹${roundedRealizedOwnerProfit.toLocaleString('en-IN')}</span>
-          </div>
+        </div>
+
+        <!-- Total Outstanding Card (Main anchor visual at bottom) -->
+        <div class="fintech-card card-total-outstanding">
+          <span class="fintech-card-label">${langIsTA ? 'நிலுவை தொகை' : 'TOTAL OUTSTANDING'}</span>
+          <span class="fintech-card-value">${fmt(remainingTotal)}</span>
+        </div>
+
+        <!-- Realized Owner Profit Cumulative Tracker -->
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-top:12px;padding:12px;background:rgba(16,185,129,0.05);border:1px solid rgba(16,185,129,0.15);border-radius:12px;font-size:13px;font-weight:700">
+          <span style="color:var(--emerald-400)">${langIsTA ? 'மொத்த உரிமையாளர் லாபம்' : 'Total Realized Owner Profit'}</span>
+          <span style="color:var(--emerald-400);font-size:15px;font-weight:800" id="realizedOwnerProfit">₹${roundedRealizedOwnerProfit.toLocaleString('en-IN')}</span>
         </div>
       </div>
     `;
@@ -3246,18 +3253,18 @@ function renderDetailPanel() {
       <!-- Quick Stats -->
       <div class="stats-strip">
         <div class="stat-item">
-          <div class="stat-val">${fmt(p, true)}</div>
           <div class="stat-key">${t('principal_label')}</div>
+          <div class="stat-val">${fmt(p, true)}</div>
         </div>
         <div class="stat-item">
-          <div class="stat-val">${c.loanType === 'monthly' ? fmt(monthlyInterest(p), true) + '/' + (state.lang === 'ta' ? 'மா' : 'mo') : '₹' + c.dailyRate + '/' + (state.lang === 'ta' ? 'நாள்' : 'day')}</div>
           <div class="stat-key">${t('interest_label')}</div>
+          <div class="stat-val">${c.loanType === 'monthly' ? fmt(monthlyInterest(p), true) + '/' + (state.lang === 'ta' ? 'மா' : 'mo') : '₹' + c.dailyRate + '/' + (state.lang === 'ta' ? 'நாள்' : 'day')}</div>
         </div>
         <div class="stat-item">
+          <div class="stat-key">${t('days_active')}</div>
           <div class="stat-val">${c.loanType === 'daily' 
             ? daysBetweenInclusive(c.startDate || c.createdAt?.slice(0,10), c.endDate || getLocalToday())
             : daysBetween(c.startDate || c.createdAt?.slice(0,10), c.endDate || getLocalToday())}</div>
-          <div class="stat-key">${t('days_active')}</div>
         </div>
       </div>
 

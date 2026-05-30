@@ -2698,3 +2698,287 @@ body.light-mode .auth-screen {
 #profitLedgerModal {
   z-index: 850 !important;
 }
+
+/* ============================================================
+   UI MODERNIZATION FOR PREMIUM FINTECH SOFTWARE EXPERIENCE
+   ============================================================ */
+
+/* ─── Premium Typography & Whitespace Overrides ─── */
+body, .sidebar, .topbar, .card, .btn, .form-input, .form-select, .form-textarea, .modal, .toggle-group, .switch-row, .empty-state, .data-table td, .detail-panel, .investor-card, .agent-card, .insight-card, .stats-strip, .date-range-calc, .date-range-result, .report-score, .score-circle {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
+}
+
+/* ─── Flat Modern Button Guidelines ─── */
+.btn {
+  padding: 12px 24px !important; /* Ample inner padding for mobile tap actions */
+  border-radius: 12px !important; /* Uniform border-radius */
+  font-weight: 600 !important;
+  font-size: 13px !important;
+  box-shadow: none !important;
+  text-shadow: none !important;
+  background-image: none !important;
+  transition: all 0.2s ease-in-out !important;
+}
+
+.btn-primary {
+  background: var(--emerald-600) !important;
+  color: #ffffff !important;
+  border: 1px solid transparent !important;
+}
+
+.btn-primary:hover {
+  background: var(--emerald-700) !important;
+  transform: translateY(-1px) !important;
+  box-shadow: 0 4px 12px rgba(5, 150, 105, 0.15) !important;
+}
+
+.btn-secondary {
+  background: var(--slate-800) !important;
+  color: var(--text-primary) !important;
+  border: 1px solid var(--border-card) !important;
+}
+
+.btn-secondary:hover {
+  background: var(--slate-700) !important;
+  color: var(--text-primary) !important;
+  border-color: var(--border-hover) !important;
+}
+
+.btn-danger {
+  background: var(--rose-500) !important;
+  color: #ffffff !important;
+  border: 1px solid transparent !important;
+}
+
+.btn-danger:hover {
+  background: #be123c !important; /* crimson red */
+}
+
+/* Light mode overrides for buttons to maintain premium appearance */
+body.light-mode .btn-primary {
+  background: #059669 !important;
+  color: #ffffff !important;
+}
+body.light-mode .btn-primary:hover {
+  background: #047857 !important;
+}
+body.light-mode .btn-secondary {
+  background: #f1f5f9 !important;
+  color: #0f172a !important;
+  border: 1px solid #e2e8f0 !important;
+}
+body.light-mode .btn-secondary:hover {
+  background: #e2e8f0 !important;
+}
+
+/* ─── Luxury Minimalist Color Cards in Balance Breakdown ─── */
+.fintech-cards-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+  margin-top: 14px;
+  margin-bottom: 12px;
+}
+
+.fintech-card {
+  display: flex;
+  flex-direction: column;
+  padding: 16px;
+  border-radius: 16px !important; /* rounded-2xl */
+  box-shadow: var(--shadow-sm) !important; /* soft micro shadow */
+  border: 1px solid rgba(0, 0, 0, 0.04);
+  transition: all 0.2s ease-in-out;
+}
+
+.fintech-card-label {
+  font-size: 10px !important;
+  font-weight: 700 !important;
+  text-transform: uppercase !important;
+  color: var(--text-muted) !important;
+  letter-spacing: 0.8px !important;
+  margin-bottom: 6px !important;
+  display: block;
+}
+
+.fintech-card-value {
+  font-size: 24px !important;
+  font-weight: 800 !important;
+  line-height: 1.2 !important;
+  font-variant-numeric: tabular-nums !important;
+  letter-spacing: -0.5px !important;
+}
+
+/* Card 1: Loan Amount (clean off-white background, deep midnight navy text) */
+.fintech-card.card-loan-amount {
+  background: #f8fafc !important;
+  border: 1px solid #e2e8f0 !important;
+}
+.fintech-card.card-loan-amount .fintech-card-value {
+  color: #0f172a !important; /* deep midnight navy */
+}
+.fintech-card.card-loan-amount .fintech-card-label {
+  color: #64748b !important;
+}
+
+/* Card 2: Interest Collected (refined emerald green tint) */
+.fintech-card.card-interest-collected {
+  background: #f0fdf4 !important; /* bg-emerald-50/50 */
+  border: 1px solid #d1fae5 !important;
+}
+.fintech-card.card-interest-collected .fintech-card-value {
+  color: #047857 !important; /* text-emerald-700 */
+}
+.fintech-card.card-interest-collected .fintech-card-label {
+  color: #065f46 !important;
+}
+
+/* Card 3: Pending Interest (sharp corporate crimson red tint) */
+.fintech-card.card-pending-interest {
+  background: #fff1f2 !important; /* bg-rose-50/50 */
+  border: 1px solid #ffe4e6 !important;
+}
+.fintech-card.card-pending-interest .fintech-card-value {
+  color: #b91c1c !important; /* text-rose-700 */
+}
+.fintech-card.card-pending-interest .fintech-card-label {
+  color: #9f1239 !important;
+}
+
+/* Card 4: Total Outstanding (premium slate card at bottom) */
+.fintech-card.card-total-outstanding {
+  grid-column: span 2;
+  background: #0f172a !important; /* bg-slate-900 */
+  border: 1px solid #1e293b !important;
+  margin-top: 4px;
+}
+.fintech-card.card-total-outstanding .fintech-card-value {
+  color: #ffffff !important;
+  font-size: 28px !important; /* main anchor visual */
+}
+.fintech-card.card-total-outstanding .fintech-card-label {
+  color: #94a3b8 !important;
+}
+
+/* Adaptive styles for light mode of the 4 cards */
+body.light-mode .fintech-card.card-loan-amount {
+  background: #f8fafc !important;
+  border-color: #e2e8f0 !important;
+}
+body.light-mode .fintech-card.card-interest-collected {
+  background: #f0fdf4 !important;
+  border-color: #cbd5e1 !important;
+}
+body.light-mode .fintech-card.card-pending-interest {
+  background: #fff1f2 !important;
+  border-color: #cbd5e1 !important;
+}
+body.light-mode .fintech-card.card-total-outstanding {
+  background: #0f172a !important;
+  border-color: #0f172a !important;
+}
+
+/* ─── Premium Dashboard KPI Overrides ─── */
+.kpi-card {
+  border-radius: 16px !important; /* rounded-2xl */
+  box-shadow: var(--shadow-sm) !important;
+  border: 1px solid var(--border-card) !important;
+  padding: 22px 24px !important;
+  background: var(--bg-card) !important;
+}
+
+/* Hide the gradient line at the top to clean up borders */
+.kpi-card::before {
+  display: none !important;
+}
+
+.kpi-card:hover {
+  transform: translateY(-2px) !important;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08) !important;
+}
+
+/* Large crisp numbers */
+.kpi-value {
+  font-size: 28px !important; /* 24px/32px range */
+  font-weight: 800 !important;
+  letter-spacing: -0.5px !important;
+  margin-top: 4px !important;
+  margin-bottom: 4px !important;
+  color: var(--text-primary) !important;
+}
+
+/* Descriptive labels in small gray muted uppercase directly above figures */
+.kpi-header {
+  display: flex !important;
+  flex-direction: row-reverse !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  margin-bottom: 6px !important;
+}
+
+.kpi-label {
+  font-size: 10px !important;
+  font-weight: 700 !important;
+  text-transform: uppercase !important;
+  color: var(--text-muted) !important;
+  letter-spacing: 0.8px !important;
+  max-width: 100% !important;
+}
+
+.kpi-icon {
+  width: 32px !important;
+  height: 32px !important;
+  background: transparent !important;
+  border-radius: 0 !important;
+  padding: 0 !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+}
+
+.kpi-card.card-profit .kpi-icon { background: none !important; }
+.kpi-card.card-liability .kpi-icon { background: none !important; }
+.kpi-card.card-agent .kpi-icon { background: none !important; }
+.kpi-card.card-net .kpi-icon { background: none !important; }
+
+/* ─── Premium Stats Strip in Details Panel ─── */
+.stats-strip {
+  background: transparent !important;
+  border: 1px solid var(--border-card) !important;
+  border-radius: 16px !important; /* rounded-2xl */
+  padding: 16px !important;
+  box-shadow: var(--shadow-sm) !important;
+  margin-bottom: 20px !important;
+}
+
+.stat-item {
+  display: flex !important;
+  flex-direction: column-reverse !important; /* Place key above value */
+  align-items: center !important;
+}
+
+.stat-item .stat-key {
+  font-size: 9px !important;
+  font-weight: 700 !important;
+  text-transform: uppercase !important;
+  color: var(--text-muted) !important;
+  letter-spacing: 0.8px !important;
+  margin-bottom: 4px !important;
+  margin-top: 0 !important;
+}
+
+.stat-item .stat-val {
+  font-size: 20px !important;
+  font-weight: 800 !important;
+  color: var(--text-primary) !important;
+  letter-spacing: -0.5px !important;
+}
+
+/* ─── Ledger Card Whitespace and Borders ─── */
+.ledger-card {
+  background: transparent !important;
+  border: 1px solid var(--border-card) !important;
+  border-radius: 16px !important;
+  box-shadow: var(--shadow-sm) !important;
+  padding: 16px !important;
+}
+
