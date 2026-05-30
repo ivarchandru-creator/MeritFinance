@@ -795,23 +795,25 @@ function daysBetweenInclusive(d1, d2) {
 }
 
 function getActivePrincipalForDate(c, dateStr) {
-  const p = Number(c.principal);
+  if (!c) return 0;
+  const p = Number(c.principal) || 0;
   if (c.loanType !== 'daily') return p;
   ensureCustomerPaymentsInitialized(c);
   let paidBefore = 0;
   for (const pay of (c.payments || [])) {
     if (pay.type === 'principal' && pay.date <= dateStr) {
-      paidBefore += Number(pay.amount);
+      paidBefore += Number(pay.amount) || 0;
     }
   }
   return Math.max(0, p - paidBefore);
 }
 
 function getDailyActiveDates(c) {
+  const dates = [];
+  if (!c) return dates;
   const today = getLocalToday();
   const startD = c.startDate || c.createdAt?.slice(0, 10) || today;
   const endD = c.status === 'closed' ? (c.endDate || today) : today;
-  const dates = [];
   if (endD < startD) return dates;
   
   const start = parseDate(startD);
@@ -828,7 +830,7 @@ function getDailyAccruedMetricsForRange(c, fromDate, toDate) {
   let agentPay = 0;
   let ownerNet = 0;
   
-  if (!fromDate || !toDate || toDate < fromDate) return { gross, investorCost, agentPay, ownerNet };
+  if (!c || !fromDate || !toDate || toDate < fromDate) return { gross, investorCost, agentPay, ownerNet };
   
   const rate = Number(c.dailyRate) || 0;
   const method = c.dailyMethod || 'split';
@@ -863,6 +865,7 @@ function getDailyAccruedMetricsForRange(c, fromDate, toDate) {
 }
 
 function getDailyLoanMetricsForPaidDays(c) {
+  if (!c) return { gross: 0, investorCost: 0, agentPay: 0, ownerNet: 0 };
   ensureCustomerPaymentsInitialized(c);
   const paidInterest = (c.payments || []).filter(p => p.type === 'interest').reduce((s, p) => s + p.amount, 0);
   
@@ -912,6 +915,7 @@ function addDays(dateStr, days) {
 }
 
 function ensureCustomerPaymentsInitialized(c) {
+  if (!c) return;
   if (!c.payments) {
     c.payments = [];
     const startDate = c.startDate || c.createdAt?.slice(0, 10) || getLocalToday();
@@ -935,7 +939,8 @@ function ensureCustomerPaymentsInitialized(c) {
 }
 
 function getActivePrincipalForMonth(c, monthIndex) {
-  const p = Number(c.principal);
+  if (!c) return 0;
+  const p = Number(c.principal) || 0;
   if (c.loanType !== 'monthly') return p;
   if (monthIndex < 1) return p;
   
@@ -946,9 +951,9 @@ function getActivePrincipalForMonth(c, monthIndex) {
   let paidBeforeMonth = 0;
   ensureCustomerPaymentsInitialized(c);
   
-  for (const pay of c.payments) {
+  for (const pay of (c.payments || [])) {
     if (pay.type === 'principal' && pay.date <= monthStartStr) {
-      paidBeforeMonth += Number(pay.amount);
+      paidBeforeMonth += Number(pay.amount) || 0;
     }
   }
   
@@ -2546,7 +2551,8 @@ I18N.en.toast_auth_failed = "Authentication failed: {error}";
 I18N.ta.toast_auth_failed = "அங்கீகாரம் தோல்வியடைந்தது: {error}";
 
 function getAccruedInterestUpTo(c, targetDate) {
-  const p = Number(c.principal);
+  if (!c) return 0;
+  const p = Number(c.principal) || 0;
   const startDate = c.startDate || c.createdAt?.slice(0, 10) || targetDate;
   const days = Math.max(0, daysBetween(startDate, targetDate));
   
@@ -2577,7 +2583,8 @@ function getAccruedInterestUpTo(c, targetDate) {
 }
 
 function getAccruedInvestorCostUpTo(c, targetDate) {
-  const p = Number(c.principal);
+  if (!c) return 0;
+  const p = Number(c.principal) || 0;
   const startDate = c.startDate || c.createdAt?.slice(0, 10) || targetDate;
   const days = Math.max(0, daysBetween(startDate, targetDate));
   
@@ -2602,9 +2609,9 @@ function getAccruedInvestorCostUpTo(c, targetDate) {
   }
 }
 
-
 function getAccruedAgentCommissionUpTo(c, targetDate) {
-  const p = Number(c.principal);
+  if (!c) return 0;
+  const p = Number(c.principal) || 0;
   const startDate = c.startDate || c.createdAt?.slice(0, 10) || targetDate;
   const days = Math.max(0, daysBetween(startDate, targetDate));
   
@@ -2630,15 +2637,16 @@ function getAccruedAgentCommissionUpTo(c, targetDate) {
   }
 }
 
-
 function getAccruedInterest(c) {
+  if (!c) return 0;
   const today = getLocalToday();
   const endD = c.status === 'closed' ? (c.endDate || today) : today;
   return getAccruedInterestUpTo(c, endD);
 }
 
 function getRemainingBalance(c) {
-  const p = Number(c.principal);
+  if (!c) return 0;
+  const p = Number(c.principal) || 0;
   const interest = getAccruedInterest(c);
   const paidI = Number(c.paidInterest) || 0;
   const paidP = Number(c.paidPrincipal) || 0;
@@ -3642,8 +3650,8 @@ function downloadLoanSummaryPDF(customerId) {
     doc.text("Collateral / Jewel Verification Proof", 20, y + 8);
 
     try {
-      // Bounded and Centered image proof (80mm width, 50mm height)
-      doc.addImage(c.jewelPhoto, 'JPEG', 65, y + 5, 80, 50);
+      // Bounded and Centered image proof (70mm width, 44mm height, starting at y+12)
+      doc.addImage(c.jewelPhoto, 'JPEG', 70, y + 12, 70, 44);
     } catch (err) {
       console.error("Error rendering jewel photo inside summary PDF:", err);
       doc.setFont("helvetica", "italic");
@@ -3933,8 +3941,8 @@ function downloadCustomerReceiptPDF(customerId) {
     doc.text("Collateral / Jewel Verification Proof", 20, y + 8);
 
     try {
-      // Bounded and Centered image proof (80mm width, 50mm height)
-      doc.addImage(c.jewelPhoto, 'JPEG', 65, y + 5, 80, 50);
+      // Bounded and Centered image proof (70mm width, 44mm height, starting at y+12)
+      doc.addImage(c.jewelPhoto, 'JPEG', 70, y + 12, 70, 44);
     } catch (err) {
       console.error("Error rendering jewel photo inside receipt PDF:", err);
       doc.setFont("helvetica", "italic");
@@ -5092,12 +5100,20 @@ function signOutUser() {
 }
 
 function onUserAuthenticated(user) {
+  if (!user) return;
   const avatarText = user.email ? user.email.slice(0, 2).toUpperCase() : 'U';
-  document.getElementById('userAvatar').textContent = avatarText;
-  document.getElementById('userName').textContent = user.email || 'User';
-  document.getElementById('sidebarUser').style.display = 'flex';
-  document.getElementById('authScreen').style.display = 'none';
-  document.getElementById('appShell').style.display = 'flex';
+  
+  const userAvatarEl = document.getElementById('userAvatar');
+  const userNameEl = document.getElementById('userName');
+  const sidebarUserEl = document.getElementById('sidebarUser');
+  const authScreenEl = document.getElementById('authScreen');
+  const appShellEl = document.getElementById('appShell');
+  
+  if (userAvatarEl) userAvatarEl.textContent = avatarText;
+  if (userNameEl) userNameEl.textContent = user.email || 'User';
+  if (sidebarUserEl) sidebarUserEl.style.display = 'flex';
+  if (authScreenEl) authScreenEl.style.display = 'none';
+  if (appShellEl) appShellEl.style.display = 'flex';
   
   if (isOfflineSandbox) {
     loadState();
@@ -5114,9 +5130,13 @@ function onUserSignOut() {
     activeFirestoreUnsubscribe();
     activeFirestoreUnsubscribe = null;
   }
-  document.getElementById('sidebarUser').style.display = 'none';
-  document.getElementById('appShell').style.display = 'none';
-  document.getElementById('authScreen').style.display = 'flex';
+  const sidebarUserEl = document.getElementById('sidebarUser');
+  const appShellEl = document.getElementById('appShell');
+  const authScreenEl = document.getElementById('authScreen');
+  
+  if (sidebarUserEl) sidebarUserEl.style.display = 'none';
+  if (appShellEl) appShellEl.style.display = 'none';
+  if (authScreenEl) authScreenEl.style.display = 'flex';
   
   // Clear state
   state.customers = [];
