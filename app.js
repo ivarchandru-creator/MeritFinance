@@ -928,14 +928,14 @@ function addDays(dateStr, days) {
 function getCustomerPaidInterest(c) {
   if (!c || !c.payments) return 0;
   return c.payments
-    .filter(p => p.type === 'interest' && p.status === 'Paid')
+    .filter(p => (p.type === 'interest' || p.type === 'Interest') && (p.status === 'Paid' || !p.status))
     .reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
 }
 
 function getCustomerPaidPrincipal(c) {
   if (!c || !c.payments) return 0;
   return c.payments
-    .filter(p => p.type === 'principal' && p.status === 'Paid')
+    .filter(p => (p.type === 'principal' || p.type === 'Principal') && (p.status === 'Paid' || !p.status))
     .reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
 }
 
@@ -1022,7 +1022,8 @@ function toggleCurrentMonthInterestPaid(customerId) {
       id: 'pay_int_' + Math.random().toString(36).substr(2, 9),
       date: todayStr,
       amount: rate,
-      type: 'interest'
+      type: 'interest',
+      status: 'Paid'
     });
   } else {
     // Remove interest payments for this month
@@ -1086,7 +1087,8 @@ function addMonthlyPayment(customerId) {
     id: 'pay_' + Math.random().toString(36).substr(2, 9),
     date,
     amount,
-    type
+    type,
+    status: 'Paid'
   };
 
   const updatedPayments = [...c.payments, newPayment];
@@ -1827,7 +1829,7 @@ function addCustomer(data) {
   const startDate = data.startDate || getLocalToday();
   if (Number(data.paidInterest) > 0) {
     c.payments.push({
-      id: 'init_int_' + Math.random().toString(36).substr(2, 9),
+      id: 'pay_init_int_' + Math.random().toString(36).substr(2, 9),
       date: startDate,
       amount: Number(data.paidInterest),
       type: 'interest',
@@ -1836,7 +1838,7 @@ function addCustomer(data) {
   }
   if (Number(data.paidPrincipal) > 0) {
     c.payments.push({
-      id: 'init_pri_' + Math.random().toString(36).substr(2, 9),
+      id: 'pay_init_pri_' + Math.random().toString(36).substr(2, 9),
       date: startDate,
       amount: Number(data.paidPrincipal),
       type: 'principal',
@@ -1863,18 +1865,21 @@ function updateCustomer(id, data) {
   const currentPaidInterest = getCustomerPaidInterest(oldC);
   
   if (newPaidInterest !== currentPaidInterest) {
-    const initIntPayment = payments.find(p => p.id.startsWith('init_int_'));
+    const initIntPayment = payments.find(p => p.id.startsWith('init_int_') || p.id.startsWith('pay_init_int_'));
     if (initIntPayment) {
       if (newPaidInterest > 0) {
         initIntPayment.amount = newPaidInterest;
         initIntPayment.status = 'Paid';
+        if (initIntPayment.id.startsWith('init_')) {
+          initIntPayment.id = 'pay_' + initIntPayment.id;
+        }
       } else {
         payments = payments.filter(p => p.id !== initIntPayment.id);
       }
     } else {
       if (newPaidInterest > 0) {
         payments.push({
-          id: 'init_int_' + Math.random().toString(36).substr(2, 9),
+          id: 'pay_init_int_' + Math.random().toString(36).substr(2, 9),
           date: data.startDate || oldC.startDate || getLocalToday(),
           amount: newPaidInterest,
           type: 'interest',
@@ -1887,18 +1892,21 @@ function updateCustomer(id, data) {
   const newPaidPrincipal = data.paidPrincipal !== undefined ? Number(data.paidPrincipal) : getCustomerPaidPrincipal(oldC);
   const currentPaidPrincipal = getCustomerPaidPrincipal(oldC);
   if (newPaidPrincipal !== currentPaidPrincipal) {
-    const initPriPayment = payments.find(p => p.id.startsWith('init_pri_'));
+    const initPriPayment = payments.find(p => p.id.startsWith('init_pri_') || p.id.startsWith('pay_init_pri_'));
     if (initPriPayment) {
       if (newPaidPrincipal > 0) {
         initPriPayment.amount = newPaidPrincipal;
         initPriPayment.status = 'Paid';
+        if (initPriPayment.id.startsWith('init_')) {
+          initPriPayment.id = 'pay_' + initPriPayment.id;
+        }
       } else {
         payments = payments.filter(p => p.id !== initPriPayment.id);
       }
     } else {
       if (newPaidPrincipal > 0) {
         payments.push({
-          id: 'init_pri_' + Math.random().toString(36).substr(2, 9),
+          id: 'pay_init_pri_' + Math.random().toString(36).substr(2, 9),
           date: data.startDate || oldC.startDate || getLocalToday(),
           amount: newPaidPrincipal,
           type: 'principal',
@@ -2257,7 +2265,7 @@ function showAnnualRevenueBreakdown() {
   openModal('annualBreakdownModal');
 }
 
-function showProfitLedgerModal() {
+function updateProfitLedgerData() {
   const modal = document.getElementById('profitLedgerModal');
   if (!modal) return;
   
@@ -2273,6 +2281,7 @@ function showProfitLedgerModal() {
   // Build paymentLogs strictly from manual transactions (to prevent seed/setup init_ payments from leaking)
   const paymentLogs = [];
   for (const c of sortedCustomers) {
+    ensureCustomerPaymentsInitialized(c);
     if (c.payments) {
       for (const p of c.payments) {
         if (p.id && p.id.startsWith('pay_')) {
@@ -2285,8 +2294,8 @@ function showProfitLedgerModal() {
     }
   }
 
-  // Force direct ledger state binding as instructed
-  const realCollectedProfit = paymentLogs.filter(p => p.status === 'Paid' && p.type === 'Interest').reduce((sum, p) => sum + Number(p.amount), 0);
+  // Force direct ledger state binding as instructed (supporting status Paid or legacy)
+  const realCollectedProfit = paymentLogs.filter(p => (p.status === 'Paid' || !p.status) && p.type === 'Interest').reduce((sum, p) => sum + Number(p.amount), 0);
   
   // Start with clean list shell
   defaultersHtml = `<ul style="list-style-type: none; padding: 12px; margin: 0; display: flex; flex-direction: column; gap: 8px;">`;
@@ -2328,10 +2337,11 @@ function showProfitLedgerModal() {
       const unpaidDueText = state.lang === 'ta' ? 'செலுத்தப்படாத வட்டி' : 'Unpaid Due';
       
       defaultersHtml += `
-        <li style="display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; background: rgba(255,255,255,0.03); border: 1px solid var(--border-default); border-radius: var(--radius-md);">
+        <li onclick="openDetailPanel('${c.id}')" style="display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; background: rgba(255,255,255,0.03); border: 1px solid var(--border-default); border-radius: var(--radius-md); cursor: pointer; transition: background 0.2s;" class="defaulter-item-row" title="${state.lang === 'ta' ? 'விவரங்களைக் காண்க' : 'View customer details'}" onmouseover="this.style.background='rgba(255,255,255,0.08)'" onmouseout="this.style.background='rgba(255,255,255,0.03)'">
           <span style="font-weight: 500; color: var(--text-primary); font-size: 13px;">
             ${escHtml(c.name)} - ${escHtml(c.phone || '—')} | ${unpaidDueText}: ₹${formattedRemaining}
           </span>
+          <span style="color: var(--text-muted); font-size: 11px;">➔</span>
         </li>
       `;
     }
@@ -2350,7 +2360,10 @@ function showProfitLedgerModal() {
   document.getElementById('valLedgerRealizedProfit').textContent = '₹' + Math.round(realCollectedProfit).toLocaleString('en-IN');
   document.getElementById('valLedgerPendingInterest').textContent = '₹' + Math.round(totalPendingInterest).toLocaleString('en-IN');
   document.getElementById('ledgerDefaultersListContainer').innerHTML = defaultersHtml;
-  
+}
+
+function showProfitLedgerModal() {
+  updateProfitLedgerData();
   openModal('profitLedgerModal');
 }
 
@@ -2367,6 +2380,7 @@ function downloadUnpaidInterestPDF() {
   // Build paymentLogs strictly from manual transactions (to prevent seed/setup init_ payments from leaking)
   const paymentLogs = [];
   for (const c of sortedCustomers) {
+    ensureCustomerPaymentsInitialized(c);
     if (c.payments) {
       for (const p of c.payments) {
         if (p.id && p.id.startsWith('pay_')) {
@@ -2379,8 +2393,8 @@ function downloadUnpaidInterestPDF() {
     }
   }
 
-  // Force direct ledger state binding as instructed
-  const realCollectedProfit = paymentLogs.filter(p => p.status === 'Paid' && p.type === 'Interest').reduce((sum, p) => sum + Number(p.amount), 0);
+  // Force direct ledger state binding as instructed (supporting status Paid or legacy)
+  const realCollectedProfit = paymentLogs.filter(p => (p.status === 'Paid' || !p.status) && p.type === 'Interest').reduce((sum, p) => sum + Number(p.amount), 0);
 
   const totalRealizedProfit = realCollectedProfit;
 
@@ -3867,6 +3881,10 @@ function renderDetailPanel() {
       </div>
     </div>
   `;
+
+  if (document.getElementById('profitLedgerModal')?.classList.contains('open')) {
+    updateProfitLedgerData();
+  }
 }
 
 function downloadLoanSummaryPDF(customerId) {
@@ -4639,7 +4657,8 @@ function toggleDailyDatePaid(customerId, dateStr) {
       id: 'pay_int_' + Math.random().toString(36).substr(2, 9),
       date: dateStr,
       amount: rate,
-      type: 'interest'
+      type: 'interest',
+      status: 'Paid'
     });
   }
   
@@ -4707,7 +4726,8 @@ function addDailyPayment(customerId) {
     id: 'pay_' + Math.random().toString(36).substr(2, 9),
     date,
     amount,
-    type
+    type,
+    status: 'Paid'
   };
 
   const updatedPayments = [...c.payments, newPayment];
@@ -5532,6 +5552,9 @@ function renderAll() {
   // Always update dashboard KPIs if visible
   if (currentView !== 'dashboard') {
     // Lazy update dashboard in background
+  }
+  if (document.getElementById('profitLedgerModal')?.classList.contains('open')) {
+    updateProfitLedgerData();
   }
 }
 
