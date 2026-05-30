@@ -2512,13 +2512,10 @@ function downloadUnpaidInterestPDF() {
     if (c.loanType === 'monthly') {
       accruedInterest = Math.round(getAccruedInterest(c));
     } else {
-      const isAjaj = c.name && c.name.toLowerCase().includes('ajaj');
-      const customDailyRate = isAjaj ? 500 : (Number(c.dailyRate) || 0);
-      let startD = c.startDate || c.createdAt?.slice(0, 10);
-      if (isAjaj) startD = '2026-05-20';
-      if (!startD) startD = getLocalToday();
-      const todayStr = getLocalToday();
-      let elapsedDays = daysBetweenInclusive(startD, todayStr);
+      const customDailyRate = Number(c.dailyRate) || 0;
+      const startD = c.startDate || c.createdAt?.slice(0, 10) || getLocalToday();
+      const endD = c.endDate || getLocalToday();
+      let elapsedDays = daysBetweenInclusive(startD, endD);
       accruedInterest = elapsedDays * customDailyRate;
     }
 
@@ -2768,19 +2765,11 @@ function downloadDailyInterestMonthReport(monthName, startDate, endDate) {
     const toVal = (c.status === 'closed' && c.endDate < endDate) ? c.endDate : endDate;
 
     if (fromVal <= toVal) {
-      const isAjaj = c.name && c.name.toLowerCase().includes('ajaj');
       const dm = getDailyAccruedMetricsForRange(c, fromVal, toVal);
       let grossInterest = dm.gross;
       let investorCost = dm.investorCost;
       let agentPay = dm.agentPay;
       let ownerNet = dm.ownerNet;
-
-      if (isAjaj && startDate <= '2026-05-20' && endDate >= '2026-05-20') {
-        grossInterest = 5500;
-        investorCost = 0;
-        agentPay = 0;
-        ownerNet = 5500;
-      }
 
       totalGross += grossInterest;
       totalAgentComm += agentPay;
@@ -3500,22 +3489,15 @@ function renderDetailPanel() {
     const today  = getLocalToday();
     
     // --- FORCE-FIX RULE 1: DYNAMIC ELAPSED DAYS CALCULATOR (Inclusive) ---
-    let startD = c.startDate || c.createdAt?.slice(0, 10);
-    const isAjaj = c.name && c.name.toLowerCase().includes('ajaj');
-    if (isAjaj) {
-      startD = '2026-05-20';
-    }
-    if (!startD) {
-      startD = getLocalToday();
-    }
-    const todayStr = getLocalToday();
-    let elapsedDays = daysBetweenInclusive(startD, todayStr);
-    const dm = getDailyAccruedMetricsForRange(c, startD, todayStr);
+    const startD = c.startDate || c.createdAt?.slice(0, 10) || getLocalToday();
+    const endD = c.endDate || getLocalToday();
+    const elapsedDays = daysBetweenInclusive(startD, endD);
+    const dm = getDailyAccruedMetricsForRange(c, startD, endD);
 
     const dayInv = method === 'custom' && c.dailyInvestorPayout !== undefined && c.dailyInvestorPayout !== null ? (Number(c.dailyInvestorPayout) || 0) : (Number(c.investorSplitPercent) || 0);
     const dayAgent = c.hasAgent ? (method === 'custom' && c.dailyAgentPayout !== undefined && c.dailyAgentPayout !== null ? (Number(c.dailyAgentPayout) || 0) : (Number(c.agentSplitPercent) || 0)) : 0;
     
-    const grossDailyInterest = isAjaj ? 500 : (Number(c.dailyRate) || 0);
+    const grossDailyInterest = Number(c.dailyRate) || 0;
     const currentOwnerRate = Math.max(0, grossDailyInterest - dayInv - dayAgent);
 
     return `
@@ -3676,23 +3658,14 @@ function renderDetailPanel() {
     const langIsTA = state.lang === 'ta';
     
     // --- FORCE-FIX RULE 1: DYNAMIC ELAPSED DAYS CALCULATOR (Inclusive) ---
-    let startD = c.startDate || c.createdAt?.slice(0, 10);
-    const isAjaj = c.name && c.name.toLowerCase().includes('ajaj');
-    if (isAjaj) {
-      startD = '2026-05-20';
-    }
-    if (!startD) {
-      startD = getLocalToday();
-    }
-    
-    // Current Real-Time Date
-    const todayStr = getLocalToday();
+    const startD = c.startDate || c.createdAt?.slice(0, 10) || getLocalToday();
+    const endD = c.endDate || getLocalToday();
     
     // Forcefully calculate the exact total number of active days elapsed (inclusive calculation)
-    let elapsedDays = daysBetweenInclusive(startD, todayStr);
+    let elapsedDays = daysBetweenInclusive(startD, endD);
     
     // --- FORCE-FIX RULE 2: ENFORCE THE CORRECT BASE VALUES ---
-    const customDailyRate = isAjaj ? 500 : (Number(c.dailyRate) || 0);
+    const customDailyRate = Number(c.dailyRate) || 0;
     const totalAccruedInterest = elapsedDays * customDailyRate;
     const totalInterestDue = totalAccruedInterest;
 
