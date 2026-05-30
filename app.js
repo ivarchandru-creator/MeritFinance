@@ -2279,14 +2279,14 @@ function renderDetailPanel() {
         <div style="display:grid;grid-template-columns:1.2fr 1fr;gap:10px;margin-bottom:10px">
           <div class="form-group" style="margin:0">
             <label class="form-label" style="font-size:11px">${langIsTA ? 'கட்டண வகை' : 'Payment Type'}</label>
-            <select id="recPaymentType" class="form-input" style="height:32px;font-size:13px;padding:4px 8px;background:var(--bg-card);border-radius:8px">
+            <select id="recPaymentType" class="form-input" onchange="updateDynamicRemainingInterest()" style="height:32px;font-size:13px;padding:4px 8px;background:var(--bg-card);border-radius:8px">
               <option value="interest">${langIsTA ? 'வட்டி செலுத்துதல்' : 'Pay Interest'}</option>
               <option value="principal">${langIsTA ? 'அசல் செலுத்துதல்' : 'Pay Principal'}</option>
             </select>
           </div>
           <div class="form-group" style="margin:0">
             <label class="form-label" style="font-size:11px">${langIsTA ? 'தொகை (₹)' : 'Amount (₹)'}</label>
-            <input type="number" id="recPaymentAmount" class="form-input" placeholder="0" min="1" style="height:32px;font-size:13px;padding:4px 8px" />
+            <input type="number" id="recPaymentAmount" class="form-input" oninput="updateDynamicRemainingInterest()" placeholder="0" min="1" style="height:32px;font-size:13px;padding:4px 8px" />
           </div>
         </div>
         <div style="display:grid;grid-template-columns:1.2fr 1fr;gap:10px;margin-bottom:12px;align-items:end">
@@ -2304,8 +2304,17 @@ function renderDetailPanel() {
     const remainingP = Math.max(0, p - (c.paidPrincipal || 0));
     const totalAccruedInterest = Math.round(getAccruedInterest(c));
     const interestPaid = Number(c.paidInterest) || 0;
-    const pendingInterest = Math.max(0, totalAccruedInterest - interestPaid);
-    const remainingTotal = remainingP + pendingInterest;
+    
+    // Calculate total interest paid strictly before today
+    const todayStr = new Date().toISOString().slice(0, 10);
+    const interestPayments = (c.payments || []).filter(p => p.type === 'interest');
+    const paidInterestBeforeToday = interestPayments
+      .filter(p => p.date < todayStr)
+      .reduce((s, p) => s + p.amount, 0);
+
+    const totalInterestDue = Math.max(0, totalAccruedInterest - paidInterestBeforeToday);
+    const remainingInterestDue = Math.max(0, totalAccruedInterest - interestPaid);
+    const remainingTotal = remainingP + remainingInterestDue;
 
     const breakdownSectionHtml = `
       <div class="detail-section ledger-card" style="background:rgba(255,255,255,0.02);border:1px solid var(--border-card);border-radius:12px;padding:12px;margin-top:14px">
@@ -2331,9 +2340,13 @@ function renderDetailPanel() {
             <span style="color:var(--text-secondary)">${langIsTA ? 'செலுத்தப்பட்ட வட்டி' : 'Interest Paid'}</span>
             <span style="font-weight:600;color:var(--rose-400)">-${fmt(interestPaid)}</span>
           </div>
+          <div style="display:flex;justify-content:space-between">
+            <span style="color:var(--text-secondary)">${langIsTA ? 'மொத்த வட்டி நிலுவை' : 'Total Interest Due'}</span>
+            <span style="font-weight:600;color:var(--amber-400)" id="valTotalInterestDue" data-value="${totalInterestDue}">+${fmt(totalInterestDue)}</span>
+          </div>
           <div style="display:flex;justify-content:space-between;border-bottom:1px dashed var(--border-default);padding-bottom:4px;margin-bottom:4px">
-            <span style="color:var(--text-secondary)">${langIsTA ? 'நிலுவையில் உள்ள வட்டி' : 'Pending Interest Due'}</span>
-            <span style="font-weight:600;color:var(--amber-400)">+${fmt(pendingInterest)}</span>
+            <span style="color:var(--text-secondary)">${langIsTA ? 'மீதமுள்ள வட்டி நிலுவை' : 'Remaining Interest Due'}</span>
+            <span style="font-weight:600;color:var(--rose-400)" id="valRemainingInterestDue">+${fmt(remainingInterestDue)}</span>
           </div>
           <div style="display:flex;justify-content:space-between;border-top:1px solid var(--border-default);padding-top:8px;margin-top:4px;font-size:15px;font-weight:800">
             <span style="color:var(--text-primary)">${langIsTA ? 'நிலுவை தொகை' : 'Remaining Balance'}</span>
@@ -3170,6 +3183,27 @@ function toggleDailyDatePaid(customerId, dateStr) {
   dbSaveCustomer(state.customers[idx]);
   renderCustomerList();
   renderDetailPanel();
+}
+
+function updateDynamicRemainingInterest() {
+  const typeEl = document.getElementById('recPaymentType');
+  const amountEl = document.getElementById('recPaymentAmount');
+  if (!typeEl || !amountEl) return;
+  
+  const type = typeEl.value;
+  const amount = parseFloat(amountEl.value) || 0;
+  
+  const totalDueEl = document.getElementById('valTotalInterestDue');
+  const remainingDueEl = document.getElementById('valRemainingInterestDue');
+  if (!totalDueEl || !remainingDueEl) return;
+  
+  const totalDue = parseFloat(totalDueEl.dataset.value) || 0;
+  if (type === 'interest') {
+    const remaining = Math.max(0, totalDue - amount);
+    remainingDueEl.textContent = '+' + remaining.toLocaleString('en-IN');
+  } else {
+    remainingDueEl.textContent = '+' + totalDue.toLocaleString('en-IN');
+  }
 }
 
 function addDailyPayment(customerId) {
