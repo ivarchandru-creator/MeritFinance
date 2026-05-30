@@ -3367,26 +3367,34 @@ function downloadLoanSummaryPDF(customerId) {
   doc.setFontSize(11);
   doc.text("Customer Name:", 15, y);
   doc.setFont("helvetica", "bold");
-  doc.text(String(c.name), 55, y);
-  y += 7;
+  const nameLines = doc.splitTextToSize(String(c.name), 140);
+  doc.text(nameLines, 55, y);
+  y += (nameLines.length - 1) * 6 + 7;
 
   doc.setFont("helvetica", "normal");
   doc.text("Phone Number:", 15, y);
   doc.setFont("helvetica", "bold");
-  doc.text(String(c.phone || "—"), 55, y);
-  y += 7;
+  const phoneLines = doc.splitTextToSize(String(c.phone || "—"), 140);
+  doc.text(phoneLines, 55, y);
+  y += (phoneLines.length - 1) * 6 + 7;
 
   doc.setFont("helvetica", "normal");
   doc.text("Unique Adagu ID:", 15, y);
   doc.setFont("helvetica", "bold");
-  doc.text(`#${c.adaguId}`, 55, y);
-  y += 12;
+  const idLines = doc.splitTextToSize(`#${c.adaguId}`, 140);
+  doc.text(idLines, 55, y);
+  y += (idLines.length - 1) * 6 + 12;
 
   // Loan parameters
+  if (y > 230) {
+    doc.addPage();
+    y = 20;
+  }
   doc.setFont("helvetica", "bold");
   doc.setFontSize(14);
   doc.text("LOAN PARAMETERS", 15, y);
   y += 4;
+  doc.setDrawColor(200, 200, 200);
   doc.line(15, y, 195, y);
   y += 8;
 
@@ -3435,6 +3443,10 @@ function downloadLoanSummaryPDF(customerId) {
   y += 12;
 
   // Calculation period
+  if (y > 240) {
+    doc.addPage();
+    y = 20;
+  }
   doc.setFont("helvetica", "bold");
   doc.setFontSize(14);
   doc.text("INTEREST CALCULATION PERIOD", 15, y);
@@ -3460,6 +3472,10 @@ function downloadLoanSummaryPDF(customerId) {
   y += 12;
 
   // Arbitrage breakdown table
+  if (y > 210) {
+    doc.addPage();
+    y = 20;
+  }
   doc.setFont("helvetica", "bold");
   doc.setFontSize(14);
   doc.text("FINANCIAL BREAKDOWN & P&L ARBITRAGE", 15, y);
@@ -3498,11 +3514,14 @@ function downloadLoanSummaryPDF(customerId) {
   doc.text("Agent Referral Commission", 18, y + 6);
   const agPct = c.loanType === 'monthly' ? (c.hasAgent ? '16.7' : '0.0') : (c.hasAgent ? (c.agentSplitPercent !== undefined && c.agentSplitPercent !== null ? Number(c.agentSplitPercent).toFixed(1) : '25.0') : '0.0');
   const agLabel = c.hasAgent
-    ? (c.loanType === 'monthly' ? `Referral: ${escHtml(c.agentName)} (${agPct}%)` : `Referral: ${escHtml(c.agentName)} (Rs. ${Number(agPct).toFixed(2)}/day)`)
+    ? (c.loanType === 'monthly' ? `Referral: ${c.agentName} (${agPct}%)` : `Referral: ${c.agentName} (Rs. ${Number(agPct).toFixed(2)}/day)`)
     : "No Referral Agent";
-  doc.text(agLabel, 90, y + 6);
+  const agLines = doc.splitTextToSize(agLabel, 95);
+  doc.text(agLines, 90, y + 6);
   doc.text(`-${agComm.toLocaleString('en-IN')}`, 192, y + 6, { align: "right" });
-  y += 8;
+  
+  const row3Height = Math.max(8, agLines.length * 5);
+  y += row3Height;
   doc.line(15, y, 195, y);
 
   doc.setFillColor(243, 244, 246);
@@ -3515,20 +3534,24 @@ function downloadLoanSummaryPDF(customerId) {
     const ownPct = c.hasAgent ? '16.7' : '33.3';
     ownLabel = `Arbitrage Margin: ${ownPct}%`;
   } else {
-    // For daily, Owner Net profit rate is active gross daily interest - investor daily - agent daily
-    const activeP = getActivePrincipalForDate(c, getLocalToday());
     const grossDailyInterest = Number(c.dailyRate) || 0;
-    const currentOwnerRate = Math.max(0, grossDailyInterest - Number(invPct) - (c.hasAgent ? Number(agPct) : 0));
+    const currentOwnerRate = Math.max(0, grossDailyInterest - Number(c.dailyInvestorPayout || c.investorSplitPercent || 0) - (c.hasAgent ? Number(c.dailyAgentPayout || c.agentSplitPercent || 0) : 0));
     ownLabel = `Arbitrage Margin: Rs. ${currentOwnerRate.toFixed(2)}/day`;
   }
-  doc.text(ownLabel, 90, y + 6);
+  const ownLines = doc.splitTextToSize(ownLabel, 95);
+  doc.text(ownLines, 90, y + 6);
   doc.setTextColor(16, 185, 129);
   doc.text(`+${ownProf.toLocaleString('en-IN')}`, 192, y + 6, { align: "right" });
   doc.setTextColor(51, 51, 51);
-  y += 12;
-
+  
+  const row4Height = Math.max(8, ownLines.length * 5);
+  y += row4Height + 4;
 
   // Ledger summary
+  if (y > 230) {
+    doc.addPage();
+    y = 20;
+  }
   doc.setFont("helvetica", "bold");
   doc.setFontSize(14);
   doc.text("PAYMENT LEDGER & BALANCE STATUS", 15, y);
@@ -3573,20 +3596,60 @@ function downloadLoanSummaryPDF(customerId) {
   doc.text("REMAINING BALANCE DUE:", 20, y + 7);
   doc.setTextColor(180, 83, 9);
   doc.text(`Rs. ${remaining.toLocaleString('en-IN')}`, 190, y + 7, { align: "right" });
+  doc.setTextColor(51, 51, 51);
+  y += 18;
+
+  // Embed Jewel Photo inside PDF Report
+  if (c.jewelPhoto) {
+    if (y > 190) {
+      doc.addPage();
+      y = 20;
+    }
+    
+    // Draw Box
+    doc.setFillColor(248, 250, 252);
+    doc.rect(15, y, 180, 75, 'F');
+    doc.setDrawColor(203, 213, 225);
+    doc.rect(15, y, 180, 75, 'D');
+
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(11);
+    doc.text("Collateral / Jewel Verification Proof", 20, y + 8);
+
+    try {
+      doc.addImage(c.jewelPhoto, 'JPEG', 60, y + 15, 90, 50);
+    } catch (err) {
+      console.error("Error rendering jewel photo inside summary PDF:", err);
+      doc.setFont("helvetica", "italic");
+      doc.setFontSize(10);
+      doc.setTextColor(150, 150, 150);
+      doc.text("[Invalid or unsupported jewel image format]", 105, y + 40, { align: "center" });
+      doc.setTextColor(51, 51, 51);
+    }
+    y += 85;
+  }
 
   if (c.notes) {
-    y += 18;
+    const notesLines = doc.splitTextToSize(`Jewel Description/Notes: ${c.notes}`, 180);
+    const notesHeight = notesLines.length * 5;
+    
+    if (y > 270 - notesHeight) {
+      doc.addPage();
+      y = 20;
+    }
+    
     doc.setTextColor(100, 116, 139);
     doc.setFont("helvetica", "italic");
     doc.setFontSize(10);
-    doc.text(`Jewel Description/Notes: ${c.notes}`, 15, y, { maxWidth: 180 });
+    doc.text(notesLines, 15, y);
+    y += notesHeight + 10;
   }
 
   // Footer note
   doc.setTextColor(150, 150, 150);
   doc.setFont("helvetica", "italic");
   doc.setFontSize(8);
-  doc.text("This is an electronically generated statement. No signature required.", 105, 280, { align: "center" });
+  doc.text("This is an electronically generated statement. No signature required.", 105, 285, { align: "center" });
 
   const filename = `${c.name.replace(/\s+/g, '_')}_Loan_Summary_${c.adaguId}.pdf`;
   doc.save(filename);
@@ -3651,22 +3714,29 @@ function downloadCustomerReceiptPDF(customerId) {
   doc.setFontSize(11);
   doc.text("Customer Name:", 15, y);
   doc.setFont("helvetica", "bold");
-  doc.text(String(c.name), 55, y);
-  y += 7;
+  const nameLines = doc.splitTextToSize(String(c.name), 140);
+  doc.text(nameLines, 55, y);
+  y += (nameLines.length - 1) * 6 + 7;
 
   doc.setFont("helvetica", "normal");
   doc.text("Phone Number:", 15, y);
   doc.setFont("helvetica", "bold");
-  doc.text(String(c.phone || "—"), 55, y);
-  y += 7;
+  const phoneLines = doc.splitTextToSize(String(c.phone || "—"), 140);
+  doc.text(phoneLines, 55, y);
+  y += (phoneLines.length - 1) * 6 + 7;
 
   doc.setFont("helvetica", "normal");
   doc.text("Unique Adagu ID:", 15, y);
   doc.setFont("helvetica", "bold");
-  doc.text(`#${c.adaguId}`, 55, y);
-  y += 12;
+  const idLines = doc.splitTextToSize(`#${c.adaguId}`, 140);
+  doc.text(idLines, 55, y);
+  y += (idLines.length - 1) * 6 + 12;
 
   // Loan parameters
+  if (y > 230) {
+    doc.addPage();
+    y = 20;
+  }
   doc.setFont("helvetica", "bold");
   doc.setFontSize(14);
   doc.text("LOAN PARAMETERS", 15, y);
@@ -3719,6 +3789,10 @@ function downloadCustomerReceiptPDF(customerId) {
   y += 12;
 
   // Calculation period
+  if (y > 240) {
+    doc.addPage();
+    y = 20;
+  }
   doc.setFont("helvetica", "bold");
   doc.setFontSize(14);
   doc.text("INTEREST CALCULATION PERIOD", 15, y);
@@ -3744,6 +3818,10 @@ function downloadCustomerReceiptPDF(customerId) {
   y += 12;
 
   // Financial breakdown table
+  if (y > 210) {
+    doc.addPage();
+    y = 20;
+  }
   doc.setFont("helvetica", "bold");
   doc.setFontSize(14);
   doc.text("FINANCIAL RECEIPT BREAKDOWN", 15, y);
@@ -3787,6 +3865,10 @@ function downloadCustomerReceiptPDF(customerId) {
   y += 8;
 
   // Highlight banner for Outstanding Balance Due
+  if (y > 230) {
+    doc.addPage();
+    y = 20;
+  }
   doc.setFillColor(254, 243, 199);
   doc.rect(15, y, 180, 24, 'F');
   
@@ -3804,20 +3886,59 @@ function downloadCustomerReceiptPDF(customerId) {
   doc.setTextColor(180, 83, 9);
   doc.text(`Rs. ${remaining.toLocaleString('en-IN')}`, 190, y + 19, { align: "right" });
   doc.setTextColor(51, 51, 51);
+  y += 24;
+
+  // Embed Jewel Photo inside PDF Report
+  if (c.jewelPhoto) {
+    if (y > 190) {
+      doc.addPage();
+      y = 20;
+    }
+    
+    // Draw Box
+    doc.setFillColor(248, 250, 252);
+    doc.rect(15, y, 180, 75, 'F');
+    doc.setDrawColor(203, 213, 225);
+    doc.rect(15, y, 180, 75, 'D');
+
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(11);
+    doc.text("Collateral / Jewel Verification Proof", 20, y + 8);
+
+    try {
+      doc.addImage(c.jewelPhoto, 'JPEG', 60, y + 15, 90, 50);
+    } catch (err) {
+      console.error("Error rendering jewel photo inside receipt PDF:", err);
+      doc.setFont("helvetica", "italic");
+      doc.setFontSize(10);
+      doc.setTextColor(150, 150, 150);
+      doc.text("[Invalid or unsupported jewel image format]", 105, y + 40, { align: "center" });
+      doc.setTextColor(51, 51, 51);
+    }
+    y += 85;
+  }
 
   if (c.notes) {
-    y += 32;
+    const notesLines = doc.splitTextToSize(`Jewel Description/Notes: ${c.notes}`, 180);
+    const notesHeight = notesLines.length * 5;
+    
+    if (y > 270 - notesHeight) {
+      doc.addPage();
+      y = 20;
+    }
+    
     doc.setTextColor(100, 116, 139);
     doc.setFont("helvetica", "italic");
     doc.setFontSize(10);
-    doc.text(`Jewel Description/Notes: ${c.notes}`, 15, y, { maxWidth: 180 });
+    doc.text(notesLines, 15, y);
+    y += notesHeight + 10;
   }
 
   // Footer note
   doc.setTextColor(150, 150, 150);
   doc.setFont("helvetica", "italic");
   doc.setFontSize(8);
-  doc.text("Thank you for your business. This is an official receipt of Merit Finance.", 105, 280, { align: "center" });
+  doc.text("Thank you for your business. This is an official receipt of Merit Finance.", 105, 285, { align: "center" });
 
   const filename = `${c.name.replace(/\s+/g, '_')}_Loan_Statement_${c.adaguId}.pdf`;
   doc.save(filename);
