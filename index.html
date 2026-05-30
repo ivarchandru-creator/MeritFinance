@@ -610,8 +610,9 @@
       <div class="form-group" style="margin-bottom:14px">
         <label class="form-label" data-i18n="label_jewel_photo">Jewel Photo for Proof</label>
         <div style="display:flex;align-items:center;gap:12px">
-          <input type="file" id="cfJewelPhoto" accept="image/*" capture="environment" style="display:none" onchange="handleJewelPhotoUpload(event)" />
-          <button type="button" class="btn btn-secondary" onclick="document.getElementById('cfJewelPhoto').click()" style="font-size:13px;padding:8px 12px;display:flex;align-items:center;gap:6px">
+          <input type="file" id="cfJewelPhoto" accept="image/*" style="display:none" onchange="handleJewelPhotoUpload(event)" />
+          <input type="file" id="cfJewelPhotoCamera" accept="image/*" capture="environment" style="display:none" onchange="handleJewelPhotoUpload(event)" />
+          <button type="button" class="btn btn-secondary" onclick="openModal('photoSourceModal')" style="font-size:13px;padding:8px 12px;display:flex;align-items:center;gap:6px">
             <svg class="ui-icon" style="width:16px;height:16px" viewBox="0 0 24 24"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
             <span data-i18n="btn_upload_photo">Upload / Capture Photo</span>
           </button>
@@ -852,6 +853,26 @@
     </div>
     <div class="modal-body" id="interestBreakdownModalBody" style="max-height: 60vh; overflow-y: auto;">
       <!-- Dynamic list elements will be generated here -->
+    </div>
+  </div>
+</div>
+
+<!-- ════ Photo Source Selection Modal ════════════════════════ -->
+<div class="modal-overlay" id="photoSourceModal" role="dialog" aria-modal="true" aria-labelledby="photoSourceModalTitle">
+  <div class="modal" style="max-width: 320px; border-radius: var(--radius-lg); text-align: center;">
+    <div class="modal-header" style="padding: 16px 20px 12px; border-bottom: 1px solid var(--border-default);">
+      <h3 class="modal-title" id="photoSourceModalTitle" data-i18n="photo_source_title" style="font-size: 15px; font-weight: 700;">Select Photo Source</h3>
+      <button class="modal-close" onclick="closeModal('photoSourceModal')" aria-label="Close modal">✕</button>
+    </div>
+    <div class="modal-body" style="padding: 20px; display: flex; flex-direction: column; gap: 12px;">
+      <button type="button" class="btn btn-secondary" onclick="triggerPhotoUpload()" style="width: 100%; display: flex; align-items: center; justify-content: center; gap: 8px; font-size: 14px; padding: 10px 14px;">
+        <svg class="ui-icon" style="width: 18px; height: 18px;" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+        <span data-i18n="btn_upload_image">Upload Image</span>
+      </button>
+      <button type="button" class="btn btn-primary" onclick="triggerCameraCapture()" style="width: 100%; display: flex; align-items: center; justify-content: center; gap: 8px; font-size: 14px; padding: 10px 14px;">
+        <svg class="ui-icon" style="width: 18px; height: 18px;" viewBox="0 0 24 24"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+        <span data-i18n="btn_open_camera">Open Camera</span>
+      </button>
     </div>
   </div>
 </div>

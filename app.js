@@ -272,10 +272,16 @@ const I18N = {
     label_owner_share: "Owner Share (₹/day)",
     label_total_paid: "Total Paid",
     label_total_owed: "Total Owed",
-    interest_breakdown_title: "Gross Interest Breakdown"
+    interest_breakdown_title: "Gross Interest Breakdown",
+    photo_source_title: "Select Photo Source",
+    btn_upload_image: "Upload Image",
+    btn_open_camera: "Open Camera"
   },
   ta: {
     interest_breakdown_title: "மொத்த வட்டி விவரம்",
+    photo_source_title: "புகைப்படத்தைத் தேர்ந்தெடுக்கவும்",
+    btn_upload_image: "படத்தை பதிவேற்று",
+    btn_open_camera: "கேமராவை திறக்கவும்",
     app_title: "வட்டி கடை",
     app_subtitle: "அடகு கடை · நிதி மேலாண்மை",
     nav_sec_overview: "கண்ணோட்டம்",
@@ -3475,9 +3481,23 @@ function removeJewelPhoto() {
   const preview = document.getElementById('cfJewelPhotoPreview');
   const container = document.getElementById('cfJewelPhotoPreviewContainer');
   const fileInput = document.getElementById('cfJewelPhoto');
+  const cameraInput = document.getElementById('cfJewelPhotoCamera');
   if (preview) preview.src = '';
   if (container) container.style.display = 'none';
   if (fileInput) fileInput.value = '';
+  if (cameraInput) cameraInput.value = '';
+}
+
+function triggerPhotoUpload() {
+  const input = document.getElementById('cfJewelPhoto');
+  if (input) input.click();
+  closeModal('photoSourceModal');
+}
+
+function triggerCameraCapture() {
+  const input = document.getElementById('cfJewelPhotoCamera');
+  if (input) input.click();
+  closeModal('photoSourceModal');
 }
 
 function compressImage(base64Str, maxWidth, maxHeight, quality, callback) {
