@@ -2263,7 +2263,6 @@ function showProfitLedgerModal() {
   
   applyTranslations(); // ensure modal static translations are updated
   
-  let totalRealizedProfit = 0;
   let totalPendingInterest = 0;
   let defaultersHtml = '';
   let hasDefaulters = false;
@@ -2271,20 +2270,23 @@ function showProfitLedgerModal() {
   // Sort customers by name
   const sortedCustomers = [...state.customers].sort((a, b) => (a.name || '').localeCompare(b.name || ''));
   
-  // Check if owner has manually added any payment transaction yet, strictly looking for entries marked
-  // explicitly with type: 'Interest' AND status: 'Paid', and having manual ID (starts with 'pay_')
-  const allManualPaidInterest = [];
+  // Build paymentLogs strictly from manual transactions (to prevent seed/setup init_ payments from leaking)
+  const paymentLogs = [];
   for (const c of sortedCustomers) {
     if (c.payments) {
       for (const p of c.payments) {
-        if ((p.type === 'Interest' || p.type === 'interest') && p.status === 'Paid' && p.id && p.id.startsWith('pay_')) {
-          allManualPaidInterest.push(p);
+        if (p.id && p.id.startsWith('pay_')) {
+          paymentLogs.push({
+            ...p,
+            type: p.type === 'interest' ? 'Interest' : p.type
+          });
         }
       }
     }
   }
 
-  const hasManualPayments = allManualPaidInterest.length > 0;
+  // Force direct ledger state binding as instructed
+  const realCollectedProfit = paymentLogs.filter(p => p.status === 'Paid' && p.type === 'Interest').reduce((sum, p) => sum + Number(p.amount), 0);
   
   // Start with clean list shell
   defaultersHtml = `<ul style="list-style-type: none; padding: 12px; margin: 0; display: flex; flex-direction: column; gap: 8px;">`;
@@ -2292,28 +2294,15 @@ function showProfitLedgerModal() {
   for (const c of sortedCustomers.filter(c => c.status === 'active')) {
     ensureCustomerPaymentsInitialized(c);
     
-    let realized = 0;
     let remainingInterestDue = 0;
     const interestPaid = getCustomerPaidInterest(c);
-    
-    // Calculate realized profit strictly from manual payments
-    const manualInterestPaid = (c.payments || [])
-      .filter(p => (p.type === 'Interest' || p.type === 'interest') && p.status === 'Paid' && p.id && p.id.startsWith('pay_'))
-      .reduce((s, p) => s + (Number(p.amount) || 0), 0);
 
     if (c.loanType === 'monthly') {
-      const rate = MONTHLY_CUSTOMER_RATE - INVESTOR_RATE - (c.hasAgent ? AGENT_COMMISSION_RATE : 0);
-      const ownerFraction = rate / MONTHLY_CUSTOMER_RATE;
-      realized = manualInterestPaid * ownerFraction;
-      
       const interestAccrued = Math.round(getAccruedInterest(c));
       remainingInterestDue = Math.max(0, interestAccrued - interestPaid);
     } else {
       const isAjaj = c.name && c.name.toLowerCase().includes('ajaj');
       const customDailyRate = isAjaj ? 500 : (Number(c.dailyRate) || 0);
-      const ownerFraction = customDailyRate > 0 ? ((Math.max(0, customDailyRate - (isAjaj ? 0 : ((c.dailyMethod === 'custom' ? Number(c.dailyInvestorPayout) : Number(c.investorSplitPercent)) || 0)) - (c.hasAgent ? (isAjaj ? 0 : ((c.dailyMethod === 'custom' ? Number(c.dailyAgentPayout) : Number(c.agentSplitPercent)) || 0)) : 0))) / customDailyRate) : 0;
-      
-      realized = manualInterestPaid * ownerFraction;
         
       let startD = c.startDate || c.createdAt?.slice(0, 10);
       if (isAjaj) {
@@ -2331,7 +2320,6 @@ function showProfitLedgerModal() {
       remainingInterestDue = totalInterestDue - interestPaid;
     }
     
-    totalRealizedProfit += realized;
     totalPendingInterest += Math.max(0, remainingInterestDue);
     
     if (remainingInterestDue > 0) {
@@ -2359,11 +2347,7 @@ function showProfitLedgerModal() {
     `;
   }
   
-  if (!hasManualPayments) {
-    totalRealizedProfit = 0;
-  }
-  
-  document.getElementById('valLedgerRealizedProfit').textContent = '₹' + Math.round(totalRealizedProfit).toLocaleString('en-IN');
+  document.getElementById('valLedgerRealizedProfit').textContent = '₹' + Math.round(realCollectedProfit).toLocaleString('en-IN');
   document.getElementById('valLedgerPendingInterest').textContent = '₹' + Math.round(totalPendingInterest).toLocaleString('en-IN');
   document.getElementById('ledgerDefaultersListContainer').innerHTML = defaultersHtml;
   
@@ -2375,52 +2359,43 @@ function downloadUnpaidInterestPDF() {
   const doc = new jsPDF();
   doc.setLineHeightFactor(1.15);
 
-  let totalRealizedProfit = 0;
   let totalPendingInterest = 0;
 
   // Sort customers by name
   const sortedCustomers = [...state.customers].sort((a, b) => (a.name || '').localeCompare(b.name || ''));
 
-  // Check if owner has manually added any payment transaction yet, strictly looking for entries marked
-  // explicitly with type: 'Interest' AND status: 'Paid', and having manual ID (starts with 'pay_')
-  const allManualPaidInterest = [];
+  // Build paymentLogs strictly from manual transactions (to prevent seed/setup init_ payments from leaking)
+  const paymentLogs = [];
   for (const c of sortedCustomers) {
     if (c.payments) {
       for (const p of c.payments) {
-        if ((p.type === 'Interest' || p.type === 'interest') && p.status === 'Paid' && p.id && p.id.startsWith('pay_')) {
-          allManualPaidInterest.push(p);
+        if (p.id && p.id.startsWith('pay_')) {
+          paymentLogs.push({
+            ...p,
+            type: p.type === 'interest' ? 'Interest' : p.type
+          });
         }
       }
     }
   }
 
-  const hasManualPayments = allManualPaidInterest.length > 0;
+  // Force direct ledger state binding as instructed
+  const realCollectedProfit = paymentLogs.filter(p => p.status === 'Paid' && p.type === 'Interest').reduce((sum, p) => sum + Number(p.amount), 0);
+
+  const totalRealizedProfit = realCollectedProfit;
 
   for (const c of sortedCustomers.filter(c => c.status === 'active')) {
     ensureCustomerPaymentsInitialized(c);
     
-    let realized = 0;
     let remainingInterestDue = 0;
     const interestPaid = getCustomerPaidInterest(c);
     
-    // Calculate realized profit strictly from manual payments
-    const manualInterestPaid = (c.payments || [])
-      .filter(p => (p.type === 'Interest' || p.type === 'interest') && p.status === 'Paid' && p.id && p.id.startsWith('pay_'))
-      .reduce((s, p) => s + (Number(p.amount) || 0), 0);
-
     if (c.loanType === 'monthly') {
-      const rate = MONTHLY_CUSTOMER_RATE - INVESTOR_RATE - (c.hasAgent ? AGENT_COMMISSION_RATE : 0);
-      const ownerFraction = rate / MONTHLY_CUSTOMER_RATE;
-      realized = manualInterestPaid * ownerFraction;
-      
       const interestAccrued = Math.round(getAccruedInterest(c));
       remainingInterestDue = Math.max(0, interestAccrued - interestPaid);
     } else {
       const isAjaj = c.name && c.name.toLowerCase().includes('ajaj');
       const customDailyRate = isAjaj ? 500 : (Number(c.dailyRate) || 0);
-      const ownerFraction = customDailyRate > 0 ? ((Math.max(0, customDailyRate - (isAjaj ? 0 : ((c.dailyMethod === 'custom' ? Number(c.dailyInvestorPayout) : Number(c.investorSplitPercent)) || 0)) - (c.hasAgent ? (isAjaj ? 0 : ((c.dailyMethod === 'custom' ? Number(c.dailyAgentPayout) : Number(c.agentSplitPercent)) || 0)) : 0))) / customDailyRate) : 0;
-      
-      realized = manualInterestPaid * ownerFraction;
         
       let startD = c.startDate || c.createdAt?.slice(0, 10);
       if (isAjaj) {
@@ -2438,12 +2413,7 @@ function downloadUnpaidInterestPDF() {
       remainingInterestDue = totalInterestDue - interestPaid;
     }
     
-    totalRealizedProfit += realized;
     totalPendingInterest += Math.max(0, remainingInterestDue);
-  }
-
-  if (!hasManualPayments) {
-    totalRealizedProfit = 0;
   }
 
   // Draw Header Banner
