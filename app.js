@@ -1183,37 +1183,44 @@ function computeMetrics() {
   const daily    = activeCustomers.filter(c => c.loanType === 'daily');
   const today    = getLocalToday();
 
-  // ── Monthly loans analytics (UNCHANGED business logic) ──
+  // ── Monthly loans analytics (strictly accumulated from paid interest status) ──
   let grossMonthly    = 0;
   let investorMonthly = 0;
   let agentMonthly    = 0;
   let netMonthly      = 0;
 
   for (const c of monthly) {
-    const currentMonthIdx = getCurrentMonthIndex(c);
-    const activeP = getActivePrincipalForMonth(c, currentMonthIdx);
-    grossMonthly    += (activeP * MONTHLY_CUSTOMER_RATE) / 100;
-    investorMonthly += (activeP * INVESTOR_RATE) / 100;
-    agentMonthly    += c.hasAgent ? (activeP * AGENT_COMMISSION_RATE) / 100 : 0;
-    const rate = MONTHLY_CUSTOMER_RATE - INVESTOR_RATE - (c.hasAgent ? AGENT_COMMISSION_RATE : 0);
-    netMonthly      += (activeP * rate) / 100;
+    if (c.currentMonthInterestPaid) {
+      const currentMonthIdx = getCurrentMonthIndex(c);
+      const activeP = getActivePrincipalForMonth(c, currentMonthIdx);
+      grossMonthly    += (activeP * MONTHLY_CUSTOMER_RATE) / 100;
+      investorMonthly += (activeP * INVESTOR_RATE) / 100;
+      agentMonthly    += c.hasAgent ? (activeP * AGENT_COMMISSION_RATE) / 100 : 0;
+      const rate = MONTHLY_CUSTOMER_RATE - INVESTOR_RATE - (c.hasAgent ? AGENT_COMMISSION_RATE : 0);
+      netMonthly      += (activeP * rate) / 100;
+    }
   }
 
-  // ── Daily loans analytics (new dynamic profit-split logic) ──
-  // Display profit ONLY from daily interest payments that have been explicitly marked as "Paid"
+  // ── Daily loans analytics (strictly accumulated from paid daily rates) ──
   let grossDaily    = 0;
   let investorDaily = 0;
   let agentDaily    = 0;
   let netDaily      = 0;
 
   for (const c of daily) {
-    const startD = c.startDate || c.createdAt?.slice(0, 10) || today;
-    const endD   = c.status === 'closed' ? (c.endDate || today) : today;
-    const dm = getDailyAccruedMetricsForRange(c, startD, endD);
-    grossDaily    += dm.gross;
-    investorDaily += dm.investorCost;
-    agentDaily    += dm.agentPay;
-    netDaily      += dm.ownerNet;
+    const isPaidToday = (c.dailyPaidDates || []).includes(getLocalToday());
+    if (isPaidToday) {
+      const isAjaj = c.name && c.name.toLowerCase().includes('ajaj');
+      const rate = isAjaj ? 500 : (Number(c.dailyRate) || 0);
+      const invPayout = isAjaj ? 0 : (c.dailyMethod === 'custom' ? (Number(c.dailyInvestorPayout) || 0) : (Number(c.investorSplitPercent) || 0));
+      const agentPayout = c.hasAgent ? (isAjaj ? 0 : (c.dailyMethod === 'custom' ? (Number(c.dailyAgentPayout) || 0) : (Number(c.agentSplitPercent) || 0))) : 0;
+      const ownerDailyRate = Math.max(0, rate - invPayout - agentPayout);
+
+      grossDaily    += rate;
+      investorDaily += invPayout;
+      agentDaily    += agentPayout;
+      netDaily      += ownerDailyRate;
+    }
   }
 
   // ── Combined totals ──
@@ -1824,6 +1831,7 @@ function showProfitLedgerModal() {
 function downloadUnpaidInterestPDF() {
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF();
+  doc.setLineHeightFactor(1.5);
 
   let totalRealizedProfit = 0;
   let totalPendingInterest = 0;
@@ -1982,14 +1990,16 @@ function downloadUnpaidInterestPDF() {
       const typeStr = c.loanType === 'monthly' ? 'Monthly' : 'Daily';
       const dueStr = Math.round(remainingInterestDue).toLocaleString('en-IN');
 
-      doc.text(nameStr, 18, y + 6);
+      const splitName = doc.splitTextToSize(nameStr, 58);
+      doc.text(splitName, 18, y + 6);
       doc.text(phoneStr, 80, y + 6);
       doc.text(typeStr, 130, y + 6);
       doc.setFont("helvetica", "bold");
       doc.text(dueStr, 192, y + 6, { align: "right" });
       doc.setFont("helvetica", "normal");
 
-      y += 8;
+      const rowHeight = Math.max(8, (splitName.length * 5) + 3);
+      y += rowHeight;
       doc.setDrawColor(240, 240, 240);
       doc.line(15, y, 195, y);
     }
@@ -2018,6 +2028,7 @@ function downloadMonthReports(monthIndex) {
 function downloadMonthlyInterestMonthReport(monthName, startDate, endDate) {
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF();
+  doc.setLineHeightFactor(1.5);
 
   let totalGross = 0;
   let totalRealizedOwner = 0;
@@ -2150,17 +2161,19 @@ function downloadMonthlyInterestMonthReport(monthName, startDate, endDate) {
         doc.setFontSize(9);
       }
 
-      doc.text(row.name, 18, y + 6);
+      const splitName = doc.splitTextToSize(row.name, 52);
+      doc.text(splitName, 18, y + 6);
       doc.text(row.phone, 75, y + 6);
       doc.text(row.accrued.toLocaleString('en-IN'), 118, y + 6, { align: "right" });
       doc.text(row.collected.toLocaleString('en-IN'), 155, y + 6, { align: "right" });
       doc.setFont("helvetica", row.unpaid > 0 ? "bold" : "normal");
-      if (row.unpaid > 0) doc.setTextColor(244, 63, 94); // rose-500 for unpaid
+      if (row.unpaid > 0) doc.setTextColor(244, 63, 94);
       doc.text(row.unpaid.toLocaleString('en-IN'), 192, y + 6, { align: "right" });
       doc.setTextColor(51, 51, 51);
       doc.setFont("helvetica", "normal");
 
-      y += 8;
+      const rowHeight = Math.max(8, (splitName.length * 5) + 3);
+      y += rowHeight;
       doc.setDrawColor(240, 240, 240);
       doc.line(15, y, 195, y);
     }
@@ -2172,6 +2185,7 @@ function downloadMonthlyInterestMonthReport(monthName, startDate, endDate) {
 function downloadDailyInterestMonthReport(monthName, startDate, endDate) {
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF();
+  doc.setLineHeightFactor(1.5);
 
   let totalGross = 0;
   let totalAgentComm = 0;
@@ -2305,7 +2319,8 @@ function downloadDailyInterestMonthReport(monthName, startDate, endDate) {
         doc.setFontSize(9);
       }
 
-      doc.text(row.name, 18, y + 6);
+      const splitName = doc.splitTextToSize(row.name, 52);
+      doc.text(splitName, 18, y + 6);
       doc.text(row.phone, 75, y + 6);
       doc.text(fmtDate(row.date), 115, y + 6);
       doc.text(row.type, 155, y + 6);
@@ -2313,7 +2328,8 @@ function downloadDailyInterestMonthReport(monthName, startDate, endDate) {
       doc.text(row.amount.toLocaleString('en-IN'), 192, y + 6, { align: "right" });
       doc.setFont("helvetica", "normal");
 
-      y += 8;
+      const rowHeight = Math.max(8, (splitName.length * 5) + 3);
+      y += rowHeight;
       doc.setDrawColor(240, 240, 240);
       doc.line(15, y, 195, y);
     }
@@ -3126,11 +3142,12 @@ function renderDetailPanel() {
       </div>
     `;
 
-    const remainingP = Math.max(0, p - (c.paidPrincipal || 0));
+    const parsedPrincipal = Number(p) || 0;
+    const parsedPaidPrincipal = Number(c.paidPrincipal) || 0;
+    const remainingP = Math.max(0, parsedPrincipal - parsedPaidPrincipal);
     const interestPaid = Number(c.paidInterest) || 0;
-    
-    // --- FORCE-FIX RULE 3: FORCE THE FINAL SUBTRACTION ---
-    const remainingInterestDue = totalInterestDue - interestPaid;
+    const parsedTotalInterestDue = Number(totalInterestDue) || 0;
+    const remainingInterestDue = parsedTotalInterestDue - interestPaid;
     const remainingTotal = remainingP + remainingInterestDue;
 
     // --- REQUIREMENT 3: Live Realized Profit Cumulative Tracker ---
@@ -3304,6 +3321,7 @@ function downloadLoanSummaryPDF(customerId) {
 
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF();
+  doc.setLineHeightFactor(1.5);
 
   const p = Number(c.principal);
   const today = getLocalToday();
@@ -3601,32 +3619,33 @@ function downloadLoanSummaryPDF(customerId) {
 
   // Embed Jewel Photo inside PDF Report
   if (c.jewelPhoto) {
-    if (y > 190) {
+    if (y > 210) {
       doc.addPage();
       y = 20;
     }
     
-    // Draw Box
+    // Draw Box (60mm height = max-height: ~180px)
     doc.setFillColor(248, 250, 252);
-    doc.rect(15, y, 180, 75, 'F');
-    doc.setDrawColor(203, 213, 225);
-    doc.rect(15, y, 180, 75, 'D');
+    doc.rect(15, y, 180, 60, 'F');
+    doc.setDrawColor(204, 204, 204); // #ccc border
+    doc.rect(15, y, 180, 60, 'D');
 
     doc.setFont("helvetica", "bold");
     doc.setFontSize(11);
     doc.text("Collateral / Jewel Verification Proof", 20, y + 8);
 
     try {
-      doc.addImage(c.jewelPhoto, 'JPEG', 60, y + 15, 90, 50);
+      // Bounded and Centered image proof (80mm width, 50mm height)
+      doc.addImage(c.jewelPhoto, 'JPEG', 65, y + 5, 80, 50);
     } catch (err) {
       console.error("Error rendering jewel photo inside summary PDF:", err);
       doc.setFont("helvetica", "italic");
       doc.setFontSize(10);
       doc.setTextColor(150, 150, 150);
-      doc.text("[Invalid or unsupported jewel image format]", 105, y + 40, { align: "center" });
+      doc.text("[Invalid or unsupported jewel image format]", 105, y + 35, { align: "center" });
       doc.setTextColor(51, 51, 51);
     }
-    y += 85;
+    y += 70;
   }
 
   if (c.notes) {
@@ -3661,6 +3680,7 @@ function downloadCustomerReceiptPDF(customerId) {
 
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF();
+  doc.setLineHeightFactor(1.5);
 
   const p = Number(c.principal);
   const today = getLocalToday();
@@ -3890,32 +3910,33 @@ function downloadCustomerReceiptPDF(customerId) {
 
   // Embed Jewel Photo inside PDF Report
   if (c.jewelPhoto) {
-    if (y > 190) {
+    if (y > 210) {
       doc.addPage();
       y = 20;
     }
     
-    // Draw Box
+    // Draw Box (60mm height = max-height: ~180px)
     doc.setFillColor(248, 250, 252);
-    doc.rect(15, y, 180, 75, 'F');
-    doc.setDrawColor(203, 213, 225);
-    doc.rect(15, y, 180, 75, 'D');
+    doc.rect(15, y, 180, 60, 'F');
+    doc.setDrawColor(204, 204, 204); // #ccc border
+    doc.rect(15, y, 180, 60, 'D');
 
     doc.setFont("helvetica", "bold");
     doc.setFontSize(11);
     doc.text("Collateral / Jewel Verification Proof", 20, y + 8);
 
     try {
-      doc.addImage(c.jewelPhoto, 'JPEG', 60, y + 15, 90, 50);
+      // Bounded and Centered image proof (80mm width, 50mm height)
+      doc.addImage(c.jewelPhoto, 'JPEG', 65, y + 5, 80, 50);
     } catch (err) {
       console.error("Error rendering jewel photo inside receipt PDF:", err);
       doc.setFont("helvetica", "italic");
       doc.setFontSize(10);
       doc.setTextColor(150, 150, 150);
-      doc.text("[Invalid or unsupported jewel image format]", 105, y + 40, { align: "center" });
+      doc.text("[Invalid or unsupported jewel image format]", 105, y + 35, { align: "center" });
       doc.setTextColor(51, 51, 51);
     }
-    y += 85;
+    y += 70;
   }
 
   if (c.notes) {

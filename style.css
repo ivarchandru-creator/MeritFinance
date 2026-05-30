@@ -2692,3 +2692,9 @@ body.light-mode .auth-screen {
   border-color: var(--theme-color) !important;
   transform: translateY(-2px);
 }
+
+#interestBreakdownModal,
+#annualBreakdownModal,
+#profitLedgerModal {
+  z-index: 850 !important;
+}
