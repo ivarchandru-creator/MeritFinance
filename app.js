@@ -271,9 +271,11 @@ const I18N = {
     label_agent_share: "Agent Share (₹/day)",
     label_owner_share: "Owner Share (₹/day)",
     label_total_paid: "Total Paid",
-    label_total_owed: "Total Owed"
+    label_total_owed: "Total Owed",
+    interest_breakdown_title: "Gross Interest Breakdown"
   },
   ta: {
+    interest_breakdown_title: "மொத்த வட்டி விவரம்",
     app_title: "வட்டி கடை",
     app_subtitle: "அடகு கடை · நிதி மேலாண்மை",
     nav_sec_overview: "கண்ணோட்டம்",
@@ -1620,6 +1622,50 @@ function closeModal(id) {
   const el = document.getElementById(id);
   el.classList.remove('open');
   document.body.style.overflow = '';
+}
+
+function showGrossInterestBreakdown(type) {
+  const body = document.getElementById('interestBreakdownModalBody');
+  if (!body) return;
+
+  const activeCustomers = (state.customers || []).filter(c => c.status === 'active' && c.loanType === type);
+  const today = getLocalToday();
+
+  // Sort customers by name
+  activeCustomers.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+
+  let html = '';
+  if (activeCustomers.length === 0) {
+    const emptyMsg = state.lang === 'ta' ? 'செயலில் உள்ள கடன்கள் எதுவும் இல்லை' : 'No active loans of this type.';
+    html = `<div style="text-align: center; color: var(--text-muted); padding: 20px 0;">${emptyMsg}</div>`;
+  } else {
+    html = `<ul style="list-style-type: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 10px;">`;
+    for (const c of activeCustomers) {
+      let val = 0;
+      if (type === 'monthly') {
+        const currentMonthIdx = getCurrentMonthIndex(c);
+        const activeP = getActivePrincipalForMonth(c, currentMonthIdx);
+        val = (activeP * MONTHLY_CUSTOMER_RATE) / 100;
+      } else {
+        const startD = c.startDate || c.createdAt?.slice(0, 10) || today;
+        const endD = c.status === 'closed' ? (c.endDate || today) : today;
+        const dm = getDailyAccruedMetricsForRange(c, startD, endD);
+        val = dm.gross;
+      }
+      
+      const formattedVal = Math.round(val).toLocaleString('en-IN');
+      html += `
+        <li style="display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; background: rgba(255,255,255,0.03); border: 1px solid var(--border-default); border-radius: var(--radius-md);">
+          <span style="font-weight: 500; color: var(--text-primary);">${c.name || 'Unknown'}</span>
+          <span style="font-weight: 600; color: var(--emerald-400);">Rs. ${formattedVal}</span>
+        </li>
+      `;
+    }
+    html += `</ul>`;
+  }
+
+  body.innerHTML = html;
+  openModal('interestBreakdownModal');
 }
 
 function openDetailPanel(customerId) {

@@ -155,6 +155,7 @@
     <!-- ── Page Content ────────────────────────────────────── -->
     <div class="page-content">
 
+
       <!-- ════════════════════════════════════════════════════
            VIEW: DASHBOARD
            ════════════════════════════════════════════════════ -->
@@ -167,7 +168,7 @@
             <div class="metrics-title" data-i18n="metrics_monthly_title">Monthly Loan Track</div>
             <div class="metrics-cards-container">
               
-              <div class="kpi-card card-profit" role="article" aria-label="Gross Monthly Interest">
+              <div class="kpi-card card-profit interactive" role="button" tabindex="0" onclick="showGrossInterestBreakdown('monthly')" aria-label="Gross Monthly Interest">
                 <div class="kpi-header">
                   <div class="kpi-label" data-i18n="kpi_gross_monthly">Gross Monthly Interest</div>
                   <div class="kpi-icon">
@@ -178,7 +179,7 @@
                 <div class="kpi-meta" id="kpiMonthlyGrossSub">3% interest on active loans</div>
               </div>
 
-              <div class="kpi-card card-liability" role="article" aria-label="Monthly Investor Share (2%)">
+              <div class="kpi-card card-liability interactive" role="button" tabindex="0" onclick="navigateTo('investors')" aria-label="Monthly Investor Share (2%)">
                 <div class="kpi-header">
                   <div class="kpi-label" data-i18n="kpi_investor_monthly">Investor Share (2%)</div>
                   <div class="kpi-icon">
@@ -189,7 +190,7 @@
                 <div class="kpi-meta" id="kpiMonthlyInvestorSub">Payout to investors</div>
               </div>
 
-              <div class="kpi-card card-agent" role="article" aria-label="Monthly Agent Share (0.5%)">
+              <div class="kpi-card card-agent interactive" role="button" tabindex="0" onclick="navigateTo('agents')" aria-label="Monthly Agent Share (0.5%)">
                 <div class="kpi-header">
                   <div class="kpi-label" data-i18n="kpi_agent_monthly">Agent Share (0.5%)</div>
                   <div class="kpi-icon">
@@ -219,7 +220,7 @@
             <div class="metrics-title" data-i18n="metrics_daily_title">Daily Loan Track</div>
             <div class="metrics-cards-container">
 
-              <div class="kpi-card card-profit" role="article" aria-label="Gross Daily Interest">
+              <div class="kpi-card card-profit interactive" role="button" tabindex="0" onclick="showGrossInterestBreakdown('daily')" aria-label="Gross Daily Interest">
                 <div class="kpi-header">
                   <div class="kpi-label" data-i18n="kpi_gross_daily">Gross Daily Interest</div>
                   <div class="kpi-icon">
@@ -230,7 +231,7 @@
                 <div class="kpi-meta" id="kpiDailyGrossSub">Interest from paid days</div>
               </div>
 
-              <div class="kpi-card card-liability" role="article" aria-label="Daily Investor Share (Custom/Fixed)">
+              <div class="kpi-card card-liability interactive" role="button" tabindex="0" onclick="navigateTo('investors')" aria-label="Daily Investor Share (Custom/Fixed)">
                 <div class="kpi-header">
                   <div class="kpi-label" data-i18n="kpi_investor_daily">Investor Share (Custom/Fixed)</div>
                   <div class="kpi-icon">
@@ -241,7 +242,7 @@
                 <div class="kpi-meta" id="kpiDailyInvestorSub">Investor payout share</div>
               </div>
 
-              <div class="kpi-card card-agent" role="article" aria-label="Daily Agent Share (Custom/Fixed)">
+              <div class="kpi-card card-agent interactive" role="button" tabindex="0" onclick="navigateTo('agents')" aria-label="Daily Agent Share (Custom/Fixed)">
                 <div class="kpi-header">
                   <div class="kpi-label" data-i18n="kpi_agent_daily">Agent Share (Custom/Fixed)</div>
                   <div class="kpi-icon">
@@ -837,6 +838,20 @@
       <button class="btn btn-secondary" onclick="closeModal('importModal')" data-i18n="btn_cancel">Cancel</button>
       <button class="btn btn-primary" id="importNextBtn" onclick="processImportStep1()" style="display:none" data-i18n="btn_next">Next ➔</button>
       <button class="btn btn-primary" id="importConfirmBtn" onclick="confirmImport()" style="display:none"><svg class="ui-icon" style="width:16px;height:16px;margin-right:4px" viewBox="0 0 24 24"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg> <span data-i18n="btn_confirm_import">Import Data</span></button>
+    </div>
+  </div>
+</div>
+
+
+<!-- ════ Gross Interest Breakdown Modal ══════════════════════ -->
+<div class="modal-overlay" id="interestBreakdownModal" role="dialog" aria-modal="true" aria-labelledby="interestBreakdownModalTitle">
+  <div class="modal" style="max-width: 450px;">
+    <div class="modal-header">
+      <h3 class="modal-title" id="interestBreakdownModalTitle" data-i18n="interest_breakdown_title">Gross Interest Breakdown</h3>
+      <button class="modal-close" onclick="closeModal('interestBreakdownModal')" aria-label="Close modal">✕</button>
+    </div>
+    <div class="modal-body" id="interestBreakdownModalBody" style="max-height: 60vh; overflow-y: auto;">
+      <!-- Dynamic list elements will be generated here -->
     </div>
   </div>
 </div>

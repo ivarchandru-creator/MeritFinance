@@ -597,6 +597,16 @@ body {
   box-shadow: var(--shadow-glow);
 }
 
+.kpi-card.interactive {
+  cursor: pointer;
+}
+
+.kpi-card.interactive:hover {
+  transform: translateY(-5px) scale(1.005);
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.15), var(--shadow-glow);
+  border-color: var(--border-hover);
+}
+
 .kpi-card.card-profit { --accent-gradient: linear-gradient(90deg, #10b981, #34d399); }
 .kpi-card.card-liability { --accent-gradient: linear-gradient(90deg, #f43f5e, #fb7185); }
 .kpi-card.card-agent { --accent-gradient: linear-gradient(90deg, #8b5cf6, #a78bfa); }
