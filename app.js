@@ -3226,77 +3226,109 @@ function openPhotoLightbox(customerId) {
 
 function renderCustomerList() {
   const list = filteredCustomers();
-  const tbody = document.getElementById('customerTableBody');
-  const cardsBody = document.getElementById('customerCardsBody');
-  if (!tbody || !cardsBody) return;
+  
+  const dailyList = list.filter(c => c.loanType === 'daily');
+  const monthlyList = list.filter(c => c.loanType === 'monthly');
 
-  // Desktop Table View
-  if (list.length === 0) {
-    tbody.innerHTML = `
-      <tr><td colspan="8">
-        <div class="empty-state">
-          <div class="empty-icon"><svg class="ui-icon" style="width:48px;height:48px" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="8" y1="12" x2="16" y2="12"/></svg></div>
-          <div class="empty-title">${t('empty_no_customers')}</div>
-          <div class="empty-desc">${t('empty_desc')}</div>
-        </div>
-      </td></tr>
-    `;
-  } else {
-    tbody.innerHTML = list.map(c => {
-      const p = Number(c.principal);
-      const monthlyInt = c.loanType === 'monthly' ? monthlyInterest(p) : null;
-      const ownerP     = c.loanType === 'monthly' ? ownerProfit(c) : null;
+  const dailyTbody = document.getElementById('dailyTableBody');
+  const monthlyTbody = document.getElementById('monthlyTableBody');
+  const dailyCardsBody = document.getElementById('dailyCardsBody');
+  const monthlyCardsBody = document.getElementById('monthlyCardsBody');
 
-      return `
-        <tr onclick="openDetailPanel('${c.id}')">
-          <td>
-            <div class="customer-cell">
-              ${c.jewelPhoto 
-                ? `<img src="${c.jewelPhoto}" class="avatar avatar-img" onclick="event.stopPropagation();openPhotoLightbox('${c.id}')" style="object-fit:cover;cursor:zoom-in" />`
-                : `<div class="avatar">${initials(c.name)}</div>`
-              }
-              <div>
-                <div class="customer-name">${escHtml(c.name)}</div>
-                <div class="customer-phone">${escHtml(c.phone)}</div>
-              </div>
+  if (!dailyTbody || !monthlyTbody || !dailyCardsBody || !monthlyCardsBody) return;
+
+  function getRowHtml(c) {
+    const p = Number(c.principal);
+    const monthlyInt = c.loanType === 'monthly' ? monthlyInterest(p) : null;
+    const ownerP     = c.loanType === 'monthly' ? ownerProfit(c) : null;
+
+    return `
+      <tr onclick="openDetailPanel('${c.id}')" style="cursor:pointer">
+        <td>
+          <div class="customer-cell">
+            ${c.jewelPhoto 
+              ? `<img src="${c.jewelPhoto}" class="avatar avatar-img" onclick="event.stopPropagation();openPhotoLightbox('${c.id}')" style="object-fit:cover;cursor:zoom-in" />`
+              : `<div class="avatar">${initials(c.name)}</div>`
+            }
+            <div>
+              <div class="customer-name">${escHtml(c.name)}</div>
+              <div class="customer-phone">${escHtml(c.phone)}</div>
             </div>
-          </td>
-          <td>
-            <span class="tag" style="font-size:12px;font-weight:600">#${escHtml(c.adaguId)}</span>
-          </td>
-          <td>
-            <span style="font-size:15px;font-weight:700;color:var(--text-primary)">${fmt(p)}</span>
-          </td>
-          <td>
-            <span style="font-size:15px;font-weight:700;color:var(--blue-400)">${fmt(c.paidPrincipal || 0)}</span>
-          </td>
-          <td>
-            <span class="badge badge-${c.loanType}">${c.loanType === 'monthly' ? t('monthly_badge') : t('daily_badge')}</span>
-            ${c.loanType === 'daily' ? `<div class="text-xs text-muted mt-1">₹${c.dailyRate}/day</div>` : ''}
-          </td>
-          <td>
-            ${c.loanType === 'monthly' ? `
-              <div style="font-size:14px;font-weight:700;color:var(--emerald-400)">${fmt(monthlyInt)}</div>
-              <div class="text-xs text-muted">${t('owner_prefix')}${fmt(ownerP)}</div>
-            ` : (() => {
-              const today = getLocalToday();
-              const endD = c.status === 'closed' ? (c.endDate || today) : today;
-              const activeDays = daysBetweenInclusive(c.startDate, endD);
-              const ownerShare = Number(c.ownerSplitPercent) || 0;
-              const grossInterest = activeDays * (Number(c.dailyRate) || 0);
-              const ownerProfit = activeDays * ownerShare;
-              return `
-                <div style="font-size:14px;font-weight:700;color:var(--emerald-400)">${fmt(grossInterest)}</div>
-                <div class="text-xs text-muted">${t('owner_prefix')}${fmt(ownerProfit)}</div>
-              `;
-            })()}
-          </td>
-          <td>
-            ${c.hasAgent
-              ? `<span class="badge badge-agent"><svg class="ui-icon" style="width:12px;height:12px;margin-right:4px" viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>${escHtml(c.agentName || 'Agent')}</span>`
-              : `<span class="text-muted text-xs">${t('direct_customer')}</span>`}
-          </td>
-          <td>
+          </div>
+        </td>
+        <td>
+          <span class="tag" style="font-size:12px;font-weight:600">#${escHtml(c.adaguId)}</span>
+        </td>
+        <td>
+          <span style="font-size:15px;font-weight:700;color:var(--text-primary)">${fmt(p)}</span>
+        </td>
+        <td>
+          <span style="font-size:15px;font-weight:700;color:var(--blue-400)">${fmt(c.paidPrincipal || 0)}</span>
+        </td>
+        <td>
+          <span class="badge badge-${c.loanType}">${c.loanType === 'monthly' ? t('monthly_badge') : t('daily_badge')}</span>
+          ${c.loanType === 'daily' ? `<div class="text-xs text-muted mt-1">₹${c.dailyRate}/day</div>` : ''}
+        </td>
+        <td>
+          ${c.loanType === 'monthly' ? `
+            <div style="font-size:14px;font-weight:700;color:var(--emerald-400)">${fmt(monthlyInt)}</div>
+            <div class="text-xs text-muted">${t('owner_prefix')}${fmt(ownerP)}</div>
+          ` : (() => {
+            const today = getLocalToday();
+            const endD = c.status === 'closed' ? (c.endDate || today) : today;
+            const activeDays = daysBetweenInclusive(c.startDate, endD);
+            const ownerShare = Number(c.ownerSplitPercent) || 0;
+            const grossInterest = activeDays * (Number(c.dailyRate) || 0);
+            const ownerProfitVal = activeDays * ownerShare;
+            return `
+              <div style="font-size:14px;font-weight:700;color:var(--emerald-400)">${fmt(grossInterest)}</div>
+              <div class="text-xs text-muted">${t('owner_prefix')}${fmt(ownerProfitVal)}</div>
+            `;
+          })()}
+        </td>
+        <td>
+          ${c.hasAgent
+            ? `<span class="badge badge-agent"><svg class="ui-icon" style="width:12px;height:12px;margin-right:4px" viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>${escHtml(c.agentName || 'Agent')}</span>`
+            : `<span class="text-muted text-xs">${t('direct_customer')}</span>`}
+        </td>
+        <td>
+          ${(() => {
+            const isPaid = c.loanType === 'monthly' ? !!c.currentMonthInterestPaid : (c.dailyPaidDates || []).includes(getLocalToday());
+            const badgeClass = isPaid ? 'badge-status-paid' : 'badge-status-unpaid';
+            const badgeLabel = isPaid 
+              ? (state.lang === 'ta' ? 'செலுத்தப்பட்டது' : 'Paid') 
+              : (state.lang === 'ta' ? 'செலுத்தப்படவில்லை' : 'Unpaid');
+            return `<button class="badge ${badgeClass}" onclick="event.stopPropagation(); toggleCustomerInterestStatus('${c.id}')" style="border:none;outline:none">${badgeLabel}</button>`;
+          })()}
+        </td>
+        <td>
+          <div style="display:flex;align-items:center;gap:6px">
+            <span class="badge badge-${c.status}">${c.status === 'active' ? t('active_status') : t('closed_status')}</span>
+            <button class="btn btn-ghost btn-icon" onclick="event.stopPropagation();editCustomer('${c.id}')" title="Edit" style="width:30px;height:30px"><svg class="ui-icon" style="width:14px;height:14px" viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 1 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
+            <button class="btn btn-ghost btn-icon" onclick="event.stopPropagation();confirmDeleteCustomer('${c.id}')" title="Delete" style="width:30px;height:30px;color:var(--rose-400)"><svg class="ui-icon" style="width:14px;height:14px" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg></button>
+          </div>
+        </td>
+      </tr>
+    `;
+  }
+
+  function getCardHtml(c) {
+    const p = Number(c.principal);
+    return `
+      <div class="mobile-card" onclick="openDetailPanel('${c.id}')">
+        <div class="mobile-card-header">
+          <div class="mobile-card-title">
+            ${c.jewelPhoto 
+              ? `<img src="${c.jewelPhoto}" class="avatar avatar-img" onclick="event.stopPropagation();openPhotoLightbox('${c.id}')" style="object-fit:cover;cursor:zoom-in" />`
+              : `<div class="avatar">${initials(c.name)}</div>`
+            }
+            <div>
+              <div class="customer-name">${escHtml(c.name)}</div>
+              <div class="customer-phone">${escHtml(c.phone)}</div>
+            </div>
+          </div>
+          <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px">
+            <span class="badge badge-${c.status}">${c.status === 'active' ? t('active_status') : t('closed_status')}</span>
             ${(() => {
               const isPaid = c.loanType === 'monthly' ? !!c.currentMonthInterestPaid : (c.dailyPaidDates || []).includes(getLocalToday());
               const badgeClass = isPaid ? 'badge-status-paid' : 'badge-status-unpaid';
@@ -3305,88 +3337,89 @@ function renderCustomerList() {
                 : (state.lang === 'ta' ? 'செலுத்தப்படவில்லை' : 'Unpaid');
               return `<button class="badge ${badgeClass}" onclick="event.stopPropagation(); toggleCustomerInterestStatus('${c.id}')" style="border:none;outline:none">${badgeLabel}</button>`;
             })()}
-          </td>
-          <td>
-            <div style="display:flex;align-items:center;gap:6px">
-              <span class="badge badge-${c.status}">${c.status === 'active' ? t('active_status') : t('closed_status')}</span>
-              <button class="btn btn-ghost btn-icon" onclick="event.stopPropagation();editCustomer('${c.id}')" title="Edit" style="width:30px;height:30px"><svg class="ui-icon" style="width:14px;height:14px" viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 1 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
-              <button class="btn btn-ghost btn-icon" onclick="event.stopPropagation();confirmDeleteCustomer('${c.id}')" title="Delete" style="width:30px;height:30px;color:var(--rose-400)"><svg class="ui-icon" style="width:14px;height:14px" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg></button>
+          </div>
+        </div>
+        <div class="mobile-card-body">
+          <div class="mobile-card-meta">
+            <div class="mobile-card-principal">${fmt(p)}</div>
+            <div style="font-size:12px;color:var(--text-muted)">
+              ${c.loanType === 'monthly' ? t('monthly_badge') + ' (3%)' : t('daily_badge') + ' (₹' + c.dailyRate + '/day)'}
             </div>
-          </td>
-        </tr>
-      `;
-    }).join('');
+            <div style="font-size:13px;font-weight:700;color:var(--blue-400);margin-top:4px">
+              ${t('paid_principal_label')}: ${fmt(c.paidPrincipal || 0)}
+            </div>
+          </div>
+          <div style="text-align:right">
+            ${c.loanType === 'monthly' ? `
+              <div style="font-size:13px;font-weight:700;color:var(--emerald-400)">${fmt(monthlyInterest(p))}</div>
+              <div class="text-xs text-muted">${t('owner_prefix')}${fmt(ownerProfit(c))}</div>
+            ` : (() => {
+              const today = getLocalToday();
+              const endD = c.status === 'closed' ? (c.endDate || today) : today;
+              const activeDays = daysBetweenInclusive(c.startDate, endD);
+              const ownerShare = Number(c.ownerSplitPercent) || 0;
+              const grossInterest = activeDays * (Number(c.dailyRate) || 0);
+              const ownerProfitVal = activeDays * ownerShare;
+              return `
+                <div style="font-size:13px;font-weight:700;color:var(--emerald-400)">${fmt(grossInterest)}</div>
+                <div class="text-xs text-muted">${t('owner_prefix')}${fmt(ownerProfitVal)}</div>
+              `;
+            })()}
+            ${c.hasAgent ? `<div class="badge badge-agent mt-1" style="font-size:10px"><svg class="ui-icon" style="width:12px;height:12px;margin-right:4px" viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>${escHtml(c.agentName)}</div>` : ''}
+          </div>
+        </div>
+      </div>
+    `;
   }
 
-  // Mobile Cards View
-  if (list.length === 0) {
-    cardsBody.innerHTML = `
-      <div class="empty-state">
-        <div class="empty-icon"><svg class="ui-icon" style="width:48px;height:48px" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="8" y1="12" x2="16" y2="12"/></svg></div>
-        <div class="empty-title">${t('empty_no_customers')}</div>
-        <div class="empty-desc">${t('empty_desc')}</div>
+  // Render Daily Desktop Table
+  if (dailyList.length === 0) {
+    dailyTbody.innerHTML = `
+      <tr><td colspan="9">
+        <div class="empty-state" style="padding: 20px;">
+          <div class="empty-icon" style="margin-bottom: 6px;"><svg class="ui-icon" style="width:36px;height:36px" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="8" y1="12" x2="16" y2="12"/></svg></div>
+          <div class="empty-title" style="font-size: 13px;">${state.lang === 'ta' ? 'தினசரி கடன்கள் ஏதுமில்லை' : 'No daily loans found'}</div>
+        </div>
+      </td></tr>
+    `;
+  } else {
+    dailyTbody.innerHTML = dailyList.map(c => getRowHtml(c)).join('');
+  }
+
+  // Render Monthly Desktop Table
+  if (monthlyList.length === 0) {
+    monthlyTbody.innerHTML = `
+      <tr><td colspan="9">
+        <div class="empty-state" style="padding: 20px;">
+          <div class="empty-icon" style="margin-bottom: 6px;"><svg class="ui-icon" style="width:36px;height:36px" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="8" y1="12" x2="16" y2="12"/></svg></div>
+          <div class="empty-title" style="font-size: 13px;">${state.lang === 'ta' ? 'மாதாந்திர கடன்கள் ஏதுமில்லை' : 'No monthly loans found'}</div>
+        </div>
+      </td></tr>
+    `;
+  } else {
+    monthlyTbody.innerHTML = monthlyList.map(c => getRowHtml(c)).join('');
+  }
+
+  // Render Daily Mobile Cards
+  if (dailyList.length === 0) {
+    dailyCardsBody.innerHTML = `
+      <div class="empty-state" style="padding: 16px;">
+        <div class="empty-title" style="font-size: 13px;">${state.lang === 'ta' ? 'தினசரி கடன்கள் ஏதுமில்லை' : 'No daily loans found'}</div>
       </div>
     `;
   } else {
-    cardsBody.innerHTML = list.map(c => {
-      const p = Number(c.principal);
-      return `
-        <div class="mobile-card" onclick="openDetailPanel('${c.id}')">
-          <div class="mobile-card-header">
-            <div class="mobile-card-title">
-              ${c.jewelPhoto 
-                ? `<img src="${c.jewelPhoto}" class="avatar avatar-img" onclick="event.stopPropagation();openPhotoLightbox('${c.id}')" style="object-fit:cover;cursor:zoom-in" />`
-                : `<div class="avatar">${initials(c.name)}</div>`
-              }
-              <div>
-                <div class="customer-name">${escHtml(c.name)}</div>
-                <div class="customer-phone">${escHtml(c.phone)}</div>
-              </div>
-            </div>
-            <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px">
-              <span class="badge badge-${c.status}">${c.status === 'active' ? t('active_status') : t('closed_status')}</span>
-              ${(() => {
-                const isPaid = c.loanType === 'monthly' ? !!c.currentMonthInterestPaid : (c.dailyPaidDates || []).includes(getLocalToday());
-                const badgeClass = isPaid ? 'badge-status-paid' : 'badge-status-unpaid';
-                const badgeLabel = isPaid 
-                  ? (state.lang === 'ta' ? 'செலுத்தப்பட்டது' : 'Paid') 
-                  : (state.lang === 'ta' ? 'செலுத்தப்படவில்லை' : 'Unpaid');
-                return `<button class="badge ${badgeClass}" onclick="event.stopPropagation(); toggleCustomerInterestStatus('${c.id}')" style="border:none;outline:none">${badgeLabel}</button>`;
-              })()}
-            </div>
-          </div>
-          <div class="mobile-card-body">
-            <div class="mobile-card-meta">
-              <div class="mobile-card-principal">${fmt(p)}</div>
-              <div style="font-size:12px;color:var(--text-muted)">
-                ${c.loanType === 'monthly' ? t('monthly_badge') + ' (3%)' : t('daily_badge') + ' (₹' + c.dailyRate + '/day)'}
-              </div>
-              <div style="font-size:13px;font-weight:700;color:var(--blue-400);margin-top:4px">
-                ${t('paid_principal_label')}: ${fmt(c.paidPrincipal || 0)}
-              </div>
-            </div>
-            <div style="text-align:right">
-              ${c.loanType === 'monthly' ? `
-                <div style="font-size:13px;font-weight:700;color:var(--emerald-400)">${fmt(monthlyInterest(p))}</div>
-                <div class="text-xs text-muted">${t('owner_prefix')}${fmt(ownerProfit(c))}</div>
-              ` : (() => {
-                const today = getLocalToday();
-                const endD = c.status === 'closed' ? (c.endDate || today) : today;
-                const activeDays = daysBetweenInclusive(c.startDate, endD);
-                const ownerShare = Number(c.ownerSplitPercent) || 0;
-                const grossInterest = activeDays * (Number(c.dailyRate) || 0);
-                const ownerProfit = activeDays * ownerShare;
-                return `
-                  <div style="font-size:13px;font-weight:700;color:var(--emerald-400)">${fmt(grossInterest)}</div>
-                  <div class="text-xs text-muted">${t('owner_prefix')}${fmt(ownerProfit)}</div>
-                `;
-              })()}
-              ${c.hasAgent ? `<div class="badge badge-agent mt-1" style="font-size:10px"><svg class="ui-icon" style="width:12px;height:12px;margin-right:4px" viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>${escHtml(c.agentName)}</div>` : ''}
-            </div>
-          </div>
-        </div>
-      `;
-    }).join('');
+    dailyCardsBody.innerHTML = dailyList.map(c => getCardHtml(c)).join('');
+  }
+
+  // Render Monthly Mobile Cards
+  if (monthlyList.length === 0) {
+    monthlyCardsBody.innerHTML = `
+      <div class="empty-state" style="padding: 16px;">
+        <div class="empty-title" style="font-size: 13px;">${state.lang === 'ta' ? 'மாதாந்திர கடன்கள் ஏதுமில்லை' : 'No monthly loans found'}</div>
+      </div>
+    `;
+  } else {
+    monthlyCardsBody.innerHTML = monthlyList.map(c => getCardHtml(c)).join('');
   }
 
   // Update count

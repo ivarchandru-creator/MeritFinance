@@ -324,11 +324,45 @@
               </div>
             </div>
 
-            <!-- Customer Table / Cards Grid -->
-            <div class="desktop-table-view">
+            <!-- Daily Interest Portfolio Section -->
+            <div id="dailyPortfolioContainer" class="desktop-table-view" style="margin-bottom: 28px;">
+              <div style="font-size: 11px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 12px; display: flex; align-items: center; gap: 8px;">
+                <span>Daily Interest Portfolio</span>
+                <span style="color: var(--text-muted); font-weight: 500; font-size: 10px; opacity: 0.85;">(தினசரி வட்டி லோன்கள்)</span>
+              </div>
               <div class="card" style="padding:0;overflow:hidden">
                 <div style="overflow-x:auto">
-                  <table class="data-table" aria-label="Customer loan table">
+                  <table class="data-table" aria-label="Daily loan table">
+                    <thead>
+                      <tr>
+                        <th data-i18n="th_customer">Customer</th>
+                        <th data-i18n="th_adagu_id">Adagu ID</th>
+                        <th data-i18n="th_principal">Principal</th>
+                        <th data-i18n="paid_principal_label">Principal Paid</th>
+                        <th data-i18n="th_loan_type">Loan Type</th>
+                        <th data-i18n="th_monthly_interest" data-i18n-daily="th_daily_interest">Accrued Interest</th>
+                        <th data-i18n="th_agent">Agent</th>
+                        <th data-i18n="th_interest_status">Interest Status</th>
+                        <th data-i18n="th_status">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody id="dailyTableBody">
+                      <!-- Rendered by JS -->
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+
+            <!-- Monthly Interest Portfolio Section -->
+            <div id="monthlyPortfolioContainer" class="desktop-table-view">
+              <div style="font-size: 11px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 12px; display: flex; align-items: center; gap: 8px;">
+                <span>Monthly Interest Portfolio</span>
+                <span style="color: var(--text-muted); font-weight: 500; font-size: 10px; opacity: 0.85;">(மாதாந்திர வட்டி லோன்கள்)</span>
+              </div>
+              <div class="card" style="padding:0;overflow:hidden">
+                <div style="overflow-x:auto">
+                  <table class="data-table" aria-label="Monthly loan table">
                     <thead>
                       <tr>
                         <th data-i18n="th_customer">Customer</th>
@@ -342,7 +376,7 @@
                         <th data-i18n="th_status">Status</th>
                       </tr>
                     </thead>
-                    <tbody id="customerTableBody">
+                    <tbody id="monthlyTableBody">
                       <!-- Rendered by JS -->
                     </tbody>
                   </table>
@@ -350,8 +384,21 @@
               </div>
             </div>
 
+            <!-- Mobile View -->
             <div class="mobile-cards-view">
-              <div id="customerCardsBody" class="mobile-cards-container">
+              <!-- Daily Mobile -->
+              <div style="font-size: 11px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 12px; margin-top: 16px;">
+                Daily Interest Portfolio (தினசரி வட்டி லோன்கள்)
+              </div>
+              <div id="dailyCardsBody" class="mobile-cards-container" style="margin-bottom: 24px;">
+                <!-- Rendered by JS -->
+              </div>
+
+              <!-- Monthly Mobile -->
+              <div style="font-size: 11px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 12px; margin-top: 16px;">
+                Monthly Interest Portfolio (மாதாந்திர வட்டி லோன்கள்)
+              </div>
+              <div id="monthlyCardsBody" class="mobile-cards-container">
                 <!-- Rendered by JS -->
               </div>
             </div>
