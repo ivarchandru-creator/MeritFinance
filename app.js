@@ -62,7 +62,7 @@ const I18N = {
     kpi_agent_monthly: "Agent Share (0.5%)",
     kpi_agent_daily: "Agent Share (Custom)",
     kpi_net_monthly: "Owner Net Profit",
-    kpi_net_daily: "Owner Daily Net Profit",
+    kpi_net_daily: "Owner Monthly Net Profit",
     modal_add_loan_title: "Add New Loan",
     label_customer_name: "Customer Name",
     label_phone_number: "Phone Number",
@@ -322,7 +322,7 @@ const I18N = {
     kpi_agent_monthly: "முகவர் பங்கு (0.5%)",
     kpi_agent_daily: "முகவர் பங்கு (தனிப்பயன்)",
     kpi_net_monthly: "மாதாந்திர நிகர லாபம்",
-    kpi_net_daily: "தினசரி நிகர லாபம்",
+    kpi_net_daily: "தினசரி கடன்களின் மாதாந்திர லாபம்",
     modal_add_loan_title: "புதிய கடன் சேர்க்கவும்",
     label_customer_name: "வாடிக்கையாளர் பெயர்",
     label_phone_number: "அலைபேசி எண்",
@@ -1749,7 +1749,7 @@ function renderDashboard() {
   if (kpiDailyAgent) kpiDailyAgent.textContent = fmt(m.agentDaily, true);
   
   const kpiDailyNet = document.getElementById('kpiDailyNet');
-  if (kpiDailyNet) kpiDailyNet.textContent = fmt(m.netDaily, true);
+  if (kpiDailyNet) kpiDailyNet.textContent = fmt(m.netDaily * 30, false);
 
   // Update sub-labels dynamically
   const kpiMonthlyGrossSub = document.getElementById('kpiMonthlyGrossSub');
@@ -1774,7 +1774,7 @@ function renderDashboard() {
   if (kpiDailyAgentSub) kpiDailyAgentSub.textContent = langIsTA ? 'முகவர் பரிந்துரை கமிஷன்' : 'Agent referral commission';
   
   const kpiDailyNetSub = document.getElementById('kpiDailyNetSub');
-  if (kpiDailyNetSub) kpiDailyNetSub.textContent = langIsTA ? 'தினசரி நிகர லாபம்' : 'Daily net profit';
+  if (kpiDailyNetSub) kpiDailyNetSub.textContent = langIsTA ? 'தினசரி கடன்களிலிருந்து கணிக்கப்பட்ட மாதாந்திர லாபம்' : 'Projected monthly from daily loans';
 
   // Charts
   setTimeout(() => renderCharts(), 50);
