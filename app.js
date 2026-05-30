@@ -1282,44 +1282,32 @@ function getOverallAnnualProfit() {
   const currentMonthNum = parseInt(today.slice(5, 7), 10);
   const currentMonthIdx = currentMonthNum - 1;
   
-  const paymentHistoryArray = [];
-  for (const c of state.customers) {
-    const isAjaj = c.name && c.name.toLowerCase().includes('ajaj');
-    const { rate: dRate, invPayout: dInv, agentPayout: dAgent } = getDailyRates(c);
-    
-    const payments = c.payments || [];
-    for (const p of payments) {
-      if (p.type !== 'interest') continue;
-      
-      let ownerShare = 0;
-      const amt = Number(p.amount) || 0;
-      if (c.loanType === 'monthly') {
-        const gross = amt;
-        const inv = amt * (2 / 3);
-        const agent = c.hasAgent ? amt * (0.5 / 3) : 0;
-        ownerShare = Math.max(0, gross - inv - agent);
-      } else {
-        if (isAjaj) {
-          ownerShare = amt;
-        } else if (dRate > 0) {
-          const daysFactor = amt / dRate;
-          const inv = dInv * daysFactor;
-          const agent = dAgent * daysFactor;
-          ownerShare = Math.max(0, amt - inv - agent);
-        } else {
-          ownerShare = amt;
-        }
-      }
-      
-      paymentHistoryArray.push({
-        id: p.id,
-        date: p.date,
-        amount: ownerShare,
-        type: 'Interest',
-        status: 'Paid'
-      });
+  // Calculate current month's dynamic active display values strictly from the dashboard metrics
+  const activeCustomers = state.customers.filter(c => c.status === 'active');
+  const monthly = activeCustomers.filter(c => c.loanType === 'monthly');
+  const daily = activeCustomers.filter(c => c.loanType === 'daily');
+  
+  let netMonthly = 0;
+  for (const c of monthly) {
+    if (c.currentMonthInterestPaid) {
+      const currentMonthIdx = getCurrentMonthIndex(c);
+      const activeP = getActivePrincipalForMonth(c, currentMonthIdx);
+      const rate = MONTHLY_CUSTOMER_RATE - INVESTOR_RATE - (c.hasAgent ? AGENT_COMMISSION_RATE : 0);
+      netMonthly += (activeP * rate) / 100;
     }
   }
+  
+  let netDaily = 0;
+  for (const c of daily) {
+    const paidDatesInMonth = (c.dailyPaidDates || []).filter(d => d.startsWith(today.slice(0, 7)));
+    const paidDaysCount = paidDatesInMonth.length;
+    if (paidDaysCount > 0) {
+      const { ownerDailyRate } = getDailyRates(c);
+      netDaily += ownerDailyRate * paidDaysCount;
+    }
+  }
+  
+  const currentMonthProfit = netMonthly + (netDaily * 30);
   
   let totalAnnual = 0;
   for (let i = 0; i < 12; i++) {
@@ -1328,12 +1316,11 @@ function getOverallAnnualProfit() {
       const archived = (state.monthlyArchives || []).find(a => a.month === monthStr);
       if (archived) {
         totalAnnual += Number(archived.ownerNetProfit) || 0;
+      } else {
+        totalAnnual += getRealizedProfitForMonth(monthStr);
       }
     } else if (i === currentMonthIdx) {
-      const totalRealized = paymentHistoryArray
-        .filter(tx => tx.status === 'Paid' && tx.type === 'Interest' && tx.date && tx.date.slice(0, 7) === monthStr)
-        .reduce((sum, tx) => sum + Number(tx.amount), 0);
-      totalAnnual += totalRealized;
+      totalAnnual += currentMonthProfit;
     }
   }
   return Math.round(totalAnnual);
@@ -2890,9 +2877,7 @@ function renderDashboard() {
   if (kpiDailyNetSub) kpiDailyNetSub.textContent = langIsTA ? 'தினசரி கடன்களிலிருந்து கணிக்கப்பட்ட மாதாந்திர லாபம்' : 'Projected monthly from daily loans';
 
   // Populate Aggregate Overview Rows
-  const todayStr = getLocalToday();
-  const currentMonthStr = todayStr.slice(0, 7);
-  const combinedMonthly = getRealizedProfitForMonth(currentMonthStr);
+  const combinedMonthly = m.netMonthly + (m.netDaily * 30);
   const overallAnnual = getOverallAnnualProfit();
 
   const valCombinedMonthlyProfit = document.getElementById('valCombinedMonthlyProfit');
