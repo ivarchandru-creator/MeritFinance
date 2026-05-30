@@ -2271,6 +2271,7 @@ function updateProfitLedgerData() {
   
   applyTranslations(); // ensure modal static translations are updated
   
+  let totalRealizedProfit = 0;
   let totalPendingInterest = 0;
   let defaultersHtml = '';
   let hasDefaulters = false;
@@ -2278,24 +2279,19 @@ function updateProfitLedgerData() {
   // Sort customers by name
   const sortedCustomers = [...state.customers].sort((a, b) => (a.name || '').localeCompare(b.name || ''));
   
-  // Build paymentLogs strictly from manual transactions (to prevent seed/setup init_ payments from leaking)
-  const paymentLogs = [];
+  // Check if owner has manually added any payment transaction yet, strictly looking for entries starting with 'pay_' and not including 'init'
+  let hasManualPayments = false;
   for (const c of sortedCustomers) {
-    ensureCustomerPaymentsInitialized(c);
     if (c.payments) {
       for (const p of c.payments) {
-        if (p.id && p.id.startsWith('pay_')) {
-          paymentLogs.push({
-            ...p,
-            type: p.type === 'interest' ? 'Interest' : p.type
-          });
+        if (p.id && p.id.startsWith('pay_') && !p.id.includes('init') && (p.type === 'interest' || p.type === 'Interest')) {
+          hasManualPayments = true;
+          break;
         }
       }
     }
+    if (hasManualPayments) break;
   }
-
-  // Force direct ledger state binding as instructed (supporting status Paid or legacy)
-  const realCollectedProfit = paymentLogs.filter(p => (p.status === 'Paid' || !p.status) && p.type === 'Interest').reduce((sum, p) => sum + Number(p.amount), 0);
   
   // Start with clean list shell
   defaultersHtml = `<ul style="list-style-type: none; padding: 12px; margin: 0; display: flex; flex-direction: column; gap: 8px;">`;
@@ -2304,28 +2300,44 @@ function updateProfitLedgerData() {
     ensureCustomerPaymentsInitialized(c);
     
     let remainingInterestDue = 0;
-    const interestPaid = getCustomerPaidInterest(c);
-
+    let realized = 0;
+    
+    // Get accrued interest up to today
+    let accruedInterest = 0;
+    let ownerFraction = 0;
     if (c.loanType === 'monthly') {
-      const interestAccrued = Math.round(getAccruedInterest(c));
-      remainingInterestDue = Math.max(0, interestAccrued - interestPaid);
+      accruedInterest = Math.round(getAccruedInterest(c));
+      const rate = MONTHLY_CUSTOMER_RATE - INVESTOR_RATE - (c.hasAgent ? AGENT_COMMISSION_RATE : 0);
+      ownerFraction = rate / MONTHLY_CUSTOMER_RATE;
     } else {
       const isAjaj = c.name && c.name.toLowerCase().includes('ajaj');
       const customDailyRate = isAjaj ? 500 : (Number(c.dailyRate) || 0);
-        
-      let startD = c.startDate || c.createdAt?.slice(0, 10);
-      if (isAjaj) {
-        startD = '2026-05-20';
-      }
-      if (!startD) {
-        startD = getLocalToday();
-      }
+      const startD = c.startDate || c.createdAt?.slice(0, 10) || getLocalToday();
       const todayStr = getLocalToday();
-      let elapsedDays = daysBetweenInclusive(startD, todayStr);
-      const totalInterestDue = elapsedDays * customDailyRate;
-      remainingInterestDue = totalInterestDue - interestPaid;
+      const elapsedDays = daysBetweenInclusive(startD, todayStr);
+      accruedInterest = elapsedDays * customDailyRate;
+      
+      const dayInv = c.dailyMethod === 'custom' ? (Number(c.dailyInvestorPayout) || 0) : (Number(c.investorSplitPercent) || 0);
+      const dayAgent = c.hasAgent ? (c.dailyMethod === 'custom' ? (Number(c.dailyAgentPayout) || 0) : (Number(c.agentSplitPercent) || 0)) : 0;
+      ownerFraction = customDailyRate > 0 ? (Math.max(0, customDailyRate - dayInv - dayAgent) / customDailyRate) : 0;
     }
     
+    if (hasManualPayments) {
+      const interestPaid = getCustomerPaidInterest(c);
+      remainingInterestDue = Math.max(0, accruedInterest - interestPaid);
+      
+      const manualInterestPaid = (c.payments || [])
+        .filter(p => (p.type === 'interest' || p.type === 'Interest') && (p.status === 'Paid' || !p.status) && p.id && p.id.startsWith('pay_') && !p.id.includes('init'))
+        .reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
+      
+      realized = manualInterestPaid * ownerFraction;
+    } else {
+      // Profit remains zero, pending is full real-time accrued interest up to today
+      realized = 0;
+      remainingInterestDue = accruedInterest;
+    }
+    
+    totalRealizedProfit += realized;
     totalPendingInterest += Math.max(0, remainingInterestDue);
     
     if (remainingInterestDue > 0) {
@@ -2354,7 +2366,7 @@ function updateProfitLedgerData() {
     `;
   }
   
-  document.getElementById('valLedgerRealizedProfit').textContent = '₹' + Math.round(realCollectedProfit).toLocaleString('en-IN');
+  document.getElementById('valLedgerRealizedProfit').textContent = '₹' + Math.round(totalRealizedProfit).toLocaleString('en-IN');
   document.getElementById('valLedgerPendingInterest').textContent = '₹' + Math.round(totalPendingInterest).toLocaleString('en-IN');
   document.getElementById('ledgerDefaultersListContainer').innerHTML = defaultersHtml;
 }
@@ -2369,58 +2381,68 @@ function downloadUnpaidInterestPDF() {
   const doc = new jsPDF();
   doc.setLineHeightFactor(1.15);
 
+  let totalRealizedProfit = 0;
   let totalPendingInterest = 0;
 
   // Sort customers by name
   const sortedCustomers = [...state.customers].sort((a, b) => (a.name || '').localeCompare(b.name || ''));
 
-  // Build paymentLogs strictly from manual transactions (to prevent seed/setup init_ payments from leaking)
-  const paymentLogs = [];
+  // Check if owner has manually added any payment transaction yet, strictly looking for entries starting with 'pay_' and not including 'init'
+  let hasManualPayments = false;
   for (const c of sortedCustomers) {
-    ensureCustomerPaymentsInitialized(c);
     if (c.payments) {
       for (const p of c.payments) {
-        if (p.id && p.id.startsWith('pay_')) {
-          paymentLogs.push({
-            ...p,
-            type: p.type === 'interest' ? 'Interest' : p.type
-          });
+        if (p.id && p.id.startsWith('pay_') && !p.id.includes('init') && (p.type === 'interest' || p.type === 'Interest')) {
+          hasManualPayments = true;
+          break;
         }
       }
     }
+    if (hasManualPayments) break;
   }
-
-  // Force direct ledger state binding as instructed (supporting status Paid or legacy)
-  const realCollectedProfit = paymentLogs.filter(p => (p.status === 'Paid' || !p.status) && p.type === 'Interest').reduce((sum, p) => sum + Number(p.amount), 0);
-
-  const totalRealizedProfit = realCollectedProfit;
 
   for (const c of sortedCustomers.filter(c => c.status === 'active')) {
     ensureCustomerPaymentsInitialized(c);
     
     let remainingInterestDue = 0;
-    const interestPaid = getCustomerPaidInterest(c);
+    let realized = 0;
     
+    // Get accrued interest up to today
+    let accruedInterest = 0;
+    let ownerFraction = 0;
     if (c.loanType === 'monthly') {
-      const interestAccrued = Math.round(getAccruedInterest(c));
-      remainingInterestDue = Math.max(0, interestAccrued - interestPaid);
+      accruedInterest = Math.round(getAccruedInterest(c));
+      const rate = MONTHLY_CUSTOMER_RATE - INVESTOR_RATE - (c.hasAgent ? AGENT_COMMISSION_RATE : 0);
+      ownerFraction = rate / MONTHLY_CUSTOMER_RATE;
     } else {
       const isAjaj = c.name && c.name.toLowerCase().includes('ajaj');
       const customDailyRate = isAjaj ? 500 : (Number(c.dailyRate) || 0);
-        
-      let startD = c.startDate || c.createdAt?.slice(0, 10);
-      if (isAjaj) {
-        startD = '2026-05-20';
-      }
-      if (!startD) {
-        startD = getLocalToday();
-      }
+      const startD = c.startDate || c.createdAt?.slice(0, 10) || getLocalToday();
       const todayStr = getLocalToday();
-      let elapsedDays = daysBetweenInclusive(startD, todayStr);
-      const totalInterestDue = elapsedDays * customDailyRate;
-      remainingInterestDue = totalInterestDue - interestPaid;
+      const elapsedDays = daysBetweenInclusive(startD, todayStr);
+      accruedInterest = elapsedDays * customDailyRate;
+      
+      const dayInv = c.dailyMethod === 'custom' ? (Number(c.dailyInvestorPayout) || 0) : (Number(c.investorSplitPercent) || 0);
+      const dayAgent = c.hasAgent ? (c.dailyMethod === 'custom' ? (Number(c.dailyAgentPayout) || 0) : (Number(c.agentSplitPercent) || 0)) : 0;
+      ownerFraction = customDailyRate > 0 ? (Math.max(0, customDailyRate - dayInv - dayAgent) / customDailyRate) : 0;
     }
     
+    if (hasManualPayments) {
+      const interestPaid = getCustomerPaidInterest(c);
+      remainingInterestDue = Math.max(0, accruedInterest - interestPaid);
+      
+      const manualInterestPaid = (c.payments || [])
+        .filter(p => (p.type === 'interest' || p.type === 'Interest') && (p.status === 'Paid' || !p.status) && p.id && p.id.startsWith('pay_') && !p.id.includes('init'))
+        .reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
+      
+      realized = manualInterestPaid * ownerFraction;
+    } else {
+      // Profit remains zero, pending is full real-time accrued interest up to today
+      realized = 0;
+      remainingInterestDue = accruedInterest;
+    }
+    
+    totalRealizedProfit += realized;
     totalPendingInterest += Math.max(0, remainingInterestDue);
   }
 
@@ -2488,9 +2510,9 @@ function downloadUnpaidInterestPDF() {
     ensureCustomerPaymentsInitialized(c);
     
     let remainingInterestDue = 0;
+    let accruedInterest = 0;
     if (c.loanType === 'monthly') {
-      const interestAccrued = Math.round(getAccruedInterest(c));
-      remainingInterestDue = Math.max(0, interestAccrued - (c.paidInterest || 0));
+      accruedInterest = Math.round(getAccruedInterest(c));
     } else {
       const isAjaj = c.name && c.name.toLowerCase().includes('ajaj');
       const customDailyRate = isAjaj ? 500 : (Number(c.dailyRate) || 0);
@@ -2499,9 +2521,14 @@ function downloadUnpaidInterestPDF() {
       if (!startD) startD = getLocalToday();
       const todayStr = getLocalToday();
       let elapsedDays = daysBetweenInclusive(startD, todayStr);
-      const totalInterestDue = elapsedDays * customDailyRate;
-      const interestPaid = Number(c.paidInterest) || 0;
-      remainingInterestDue = totalInterestDue - interestPaid;
+      accruedInterest = elapsedDays * customDailyRate;
+    }
+
+    if (hasManualPayments) {
+      const interestPaid = getCustomerPaidInterest(c);
+      remainingInterestDue = Math.max(0, accruedInterest - interestPaid);
+    } else {
+      remainingInterestDue = accruedInterest;
     }
 
     if (remainingInterestDue > 0) {
