@@ -1727,13 +1727,15 @@ function dbSaveCustomer(c) {
   c.paidInterest = getCustomerPaidInterest(c);
   c.paidPrincipal = getCustomerPaidPrincipal(c);
 
+  // Update local state array first to enable instant real-time sync across UI
+  const idx = state.customers.findIndex(x => x.id === c.id);
+  if (idx === -1) {
+    state.customers.unshift(c);
+  } else {
+    state.customers[idx] = c;
+  }
+
   if (isOfflineSandbox) {
-    const idx = state.customers.findIndex(x => x.id === c.id);
-    if (idx === -1) {
-      state.customers.unshift(c);
-    } else {
-      state.customers[idx] = c;
-    }
     saveState();
     renderAll();
     sendSheetUpdate('setCustomer', c);
@@ -1746,8 +1748,10 @@ function dbSaveCustomer(c) {
 }
 
 function dbDeleteCustomer(id) {
+  // Update local state array first
+  state.customers = state.customers.filter(c => c.id !== id);
+
   if (isOfflineSandbox) {
-    state.customers = state.customers.filter(c => c.id !== id);
     saveState();
     renderAll();
     sendSheetUpdate('deleteCustomer', { id: id });
@@ -1865,54 +1869,50 @@ function updateCustomer(id, data) {
   const currentPaidInterest = getCustomerPaidInterest(oldC);
   
   if (newPaidInterest !== currentPaidInterest) {
-    const initIntPayment = payments.find(p => p.id.startsWith('init_int_') || p.id.startsWith('pay_init_int_'));
-    if (initIntPayment) {
-      if (newPaidInterest > 0) {
-        initIntPayment.amount = newPaidInterest;
-        initIntPayment.status = 'Paid';
-        if (initIntPayment.id.startsWith('init_')) {
-          initIntPayment.id = 'pay_' + initIntPayment.id;
-        }
-      } else {
-        payments = payments.filter(p => p.id !== initIntPayment.id);
-      }
-    } else {
-      if (newPaidInterest > 0) {
-        payments.push({
-          id: 'pay_init_int_' + Math.random().toString(36).substr(2, 9),
-          date: data.startDate || oldC.startDate || getLocalToday(),
-          amount: newPaidInterest,
-          type: 'interest',
-          status: 'Paid'
-        });
-      }
+    const diff = newPaidInterest - currentPaidInterest;
+    let initIntPayment = payments.find(p => p.id.startsWith('init_int_') || p.id.startsWith('pay_init_int_'));
+    if (!initIntPayment) {
+      initIntPayment = {
+        id: 'pay_init_int_' + Math.random().toString(36).substr(2, 9),
+        date: data.startDate || oldC.startDate || getLocalToday(),
+        amount: 0,
+        type: 'interest',
+        status: 'Paid'
+      };
+      payments.push(initIntPayment);
+    }
+    initIntPayment.amount = Math.max(0, (initIntPayment.amount || 0) + diff);
+    initIntPayment.status = 'Paid';
+    if (initIntPayment.id.startsWith('init_')) {
+      initIntPayment.id = 'pay_' + initIntPayment.id;
+    }
+    if (initIntPayment.amount === 0) {
+      payments = payments.filter(p => p.id !== initIntPayment.id);
     }
   }
   
   const newPaidPrincipal = data.paidPrincipal !== undefined ? Number(data.paidPrincipal) : getCustomerPaidPrincipal(oldC);
   const currentPaidPrincipal = getCustomerPaidPrincipal(oldC);
   if (newPaidPrincipal !== currentPaidPrincipal) {
-    const initPriPayment = payments.find(p => p.id.startsWith('init_pri_') || p.id.startsWith('pay_init_pri_'));
-    if (initPriPayment) {
-      if (newPaidPrincipal > 0) {
-        initPriPayment.amount = newPaidPrincipal;
-        initPriPayment.status = 'Paid';
-        if (initPriPayment.id.startsWith('init_')) {
-          initPriPayment.id = 'pay_' + initPriPayment.id;
-        }
-      } else {
-        payments = payments.filter(p => p.id !== initPriPayment.id);
-      }
-    } else {
-      if (newPaidPrincipal > 0) {
-        payments.push({
-          id: 'pay_init_pri_' + Math.random().toString(36).substr(2, 9),
-          date: data.startDate || oldC.startDate || getLocalToday(),
-          amount: newPaidPrincipal,
-          type: 'principal',
-          status: 'Paid'
-        });
-      }
+    const diff = newPaidPrincipal - currentPaidPrincipal;
+    let initPriPayment = payments.find(p => p.id.startsWith('init_pri_') || p.id.startsWith('pay_init_pri_'));
+    if (!initPriPayment) {
+      initPriPayment = {
+        id: 'pay_init_pri_' + Math.random().toString(36).substr(2, 9),
+        date: data.startDate || oldC.startDate || getLocalToday(),
+        amount: 0,
+        type: 'principal',
+        status: 'Paid'
+      };
+      payments.push(initPriPayment);
+    }
+    initPriPayment.amount = Math.max(0, (initPriPayment.amount || 0) + diff);
+    initPriPayment.status = 'Paid';
+    if (initPriPayment.id.startsWith('init_')) {
+      initPriPayment.id = 'pay_' + initPriPayment.id;
+    }
+    if (initPriPayment.amount === 0) {
+      payments = payments.filter(p => p.id !== initPriPayment.id);
     }
   }
 
@@ -2320,11 +2320,8 @@ function updateProfitLedgerData() {
       if (!startD) {
         startD = getLocalToday();
       }
-      const todayStr = '2026-05-30';
+      const todayStr = getLocalToday();
       let elapsedDays = daysBetweenInclusive(startD, todayStr);
-      if (isAjaj) {
-        elapsedDays = 11;
-      }
       const totalInterestDue = elapsedDays * customDailyRate;
       remainingInterestDue = totalInterestDue - interestPaid;
     }
@@ -2418,11 +2415,8 @@ function downloadUnpaidInterestPDF() {
       if (!startD) {
         startD = getLocalToday();
       }
-      const todayStr = '2026-05-30';
+      const todayStr = getLocalToday();
       let elapsedDays = daysBetweenInclusive(startD, todayStr);
-      if (isAjaj) {
-        elapsedDays = 11;
-      }
       const totalInterestDue = elapsedDays * customDailyRate;
       remainingInterestDue = totalInterestDue - interestPaid;
     }
@@ -2503,9 +2497,8 @@ function downloadUnpaidInterestPDF() {
       let startD = c.startDate || c.createdAt?.slice(0, 10);
       if (isAjaj) startD = '2026-05-20';
       if (!startD) startD = getLocalToday();
-      const todayStr = '2026-05-30';
+      const todayStr = getLocalToday();
       let elapsedDays = daysBetweenInclusive(startD, todayStr);
-      if (isAjaj) elapsedDays = 11;
       const totalInterestDue = elapsedDays * customDailyRate;
       const interestPaid = Number(c.paidInterest) || 0;
       remainingInterestDue = totalInterestDue - interestPaid;
@@ -3444,20 +3437,9 @@ function renderDetailPanel() {
     if (!startD) {
       startD = getLocalToday();
     }
-    const todayStr = '2026-05-30';
+    const todayStr = getLocalToday();
     let elapsedDays = daysBetweenInclusive(startD, todayStr);
-    if (isAjaj) {
-      elapsedDays = 11;
-    }
-    
     const dm = getDailyAccruedMetricsForRange(c, startD, todayStr);
-    // Adjust metrics for Ajaj to evaluate strictly to 11 * 500 = 5500 gross
-    if (isAjaj) {
-      dm.gross = 5500;
-      dm.investorCost = 0;
-      dm.agentPay = 0;
-      dm.ownerNet = 5500;
-    }
 
     const dayInv = method === 'custom' && c.dailyInvestorPayout !== undefined && c.dailyInvestorPayout !== null ? (Number(c.dailyInvestorPayout) || 0) : (Number(c.investorSplitPercent) || 0);
     const dayAgent = c.hasAgent ? (method === 'custom' && c.dailyAgentPayout !== undefined && c.dailyAgentPayout !== null ? (Number(c.dailyAgentPayout) || 0) : (Number(c.agentSplitPercent) || 0)) : 0;
@@ -3632,14 +3614,11 @@ function renderDetailPanel() {
       startD = getLocalToday();
     }
     
-    // Current Real-Time Date (Today's Date: 30 May 2026)
-    const todayStr = '2026-05-30';
+    // Current Real-Time Date
+    const todayStr = getLocalToday();
     
     // Forcefully calculate the exact total number of active days elapsed (inclusive calculation)
     let elapsedDays = daysBetweenInclusive(startD, todayStr);
-    if (isAjaj) {
-      elapsedDays = 11;
-    }
     
     // --- FORCE-FIX RULE 2: ENFORCE THE CORRECT BASE VALUES ---
     const customDailyRate = isAjaj ? 500 : (Number(c.dailyRate) || 0);
