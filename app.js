@@ -687,6 +687,13 @@ function loadState() {
     if (raw) {
       const parsed = JSON.parse(raw);
       state = { customers: [], investors: [], transactions: [], theme: 'light', lang: 'en', sheetSyncUrl: '', sheetSyncEnabled: false, monthlyArchives: [], lastActiveMonth: '', ...parsed };
+      if (state.customers) {
+        state.customers.forEach(c => {
+          ensureCustomerPaymentsInitialized(c);
+          c.paidInterest = getCustomerPaidInterest(c);
+          c.paidPrincipal = getCustomerPaidPrincipal(c);
+        });
+      }
     }
     
     // Restore local-only sync settings
@@ -918,9 +925,23 @@ function addDays(dateStr, days) {
   return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
 }
 
+function getCustomerPaidInterest(c) {
+  if (!c || !c.payments) return 0;
+  return c.payments
+    .filter(p => p.type === 'interest' && p.status === 'Paid')
+    .reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
+}
+
+function getCustomerPaidPrincipal(c) {
+  if (!c || !c.payments) return 0;
+  return c.payments
+    .filter(p => p.type === 'principal' && p.status === 'Paid')
+    .reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
+}
+
 function ensureCustomerPaymentsInitialized(c) {
   if (!c) return;
-  if (!c.payments) {
+  if (!c.payments || c.payments.length === 0) {
     c.payments = [];
     const startDate = c.startDate || c.createdAt?.slice(0, 10) || getLocalToday();
     if (Number(c.paidInterest) > 0) {
@@ -928,7 +949,8 @@ function ensureCustomerPaymentsInitialized(c) {
         id: 'init_int_' + Math.random().toString(36).substr(2, 9),
         date: startDate,
         amount: Number(c.paidInterest),
-        type: 'interest'
+        type: 'interest',
+        status: 'Paid'
       });
     }
     if (Number(c.paidPrincipal) > 0) {
@@ -936,9 +958,16 @@ function ensureCustomerPaymentsInitialized(c) {
         id: 'init_pri_' + Math.random().toString(36).substr(2, 9),
         date: startDate,
         amount: Number(c.paidPrincipal),
-        type: 'principal'
+        type: 'principal',
+        status: 'Paid'
       });
     }
+  } else {
+    c.payments.forEach(p => {
+      if (!p.status) {
+        p.status = 'Paid';
+      }
+    });
   }
 }
 
@@ -1692,6 +1721,10 @@ function chartData() {
 
 /* ─── FIRESTORE CRUD HELPERS ────────────────────────────────── */
 function dbSaveCustomer(c) {
+  ensureCustomerPaymentsInitialized(c);
+  c.paidInterest = getCustomerPaidInterest(c);
+  c.paidPrincipal = getCustomerPaidPrincipal(c);
+
   if (isOfflineSandbox) {
     const idx = state.customers.findIndex(x => x.id === c.id);
     if (idx === -1) {
@@ -1783,9 +1816,6 @@ function addCustomer(data) {
     ownerSplitPercent:    data.ownerSplitPercent !== undefined ? Number(data.ownerSplitPercent) : null,
     // Photo proof
     jewelPhoto:           data.jewelPhoto || null,
-    // Payments tracking
-    paidInterest:         data.paidInterest !== undefined ? Number(data.paidInterest) : 0,
-    paidPrincipal:        data.paidPrincipal !== undefined ? Number(data.paidPrincipal) : 0,
     payments:             [],
     dailyPaidDates:       [],
     currentMonthInterestPaid: false,
@@ -1793,6 +1823,30 @@ function addCustomer(data) {
     status:    'active',
     createdAt: new Date().toISOString()
   };
+
+  const startDate = data.startDate || getLocalToday();
+  if (Number(data.paidInterest) > 0) {
+    c.payments.push({
+      id: 'init_int_' + Math.random().toString(36).substr(2, 9),
+      date: startDate,
+      amount: Number(data.paidInterest),
+      type: 'interest',
+      status: 'Paid'
+    });
+  }
+  if (Number(data.paidPrincipal) > 0) {
+    c.payments.push({
+      id: 'init_pri_' + Math.random().toString(36).substr(2, 9),
+      date: startDate,
+      amount: Number(data.paidPrincipal),
+      type: 'principal',
+      status: 'Paid'
+    });
+  }
+
+  c.paidInterest = getCustomerPaidInterest(c);
+  c.paidPrincipal = getCustomerPaidPrincipal(c);
+
   dbSaveCustomer(c);
   return c;
 }
@@ -1800,8 +1854,62 @@ function addCustomer(data) {
 function updateCustomer(id, data) {
   const idx = state.customers.findIndex(c => c.id === id);
   if (idx === -1) return;
+  const oldC = state.customers[idx];
+  ensureCustomerPaymentsInitialized(oldC);
+  
+  let payments = [...(oldC.payments || [])];
+  
+  const newPaidInterest = Number(data.paidInterest) || 0;
+  const currentPaidInterest = getCustomerPaidInterest(oldC);
+  
+  if (newPaidInterest !== currentPaidInterest) {
+    const initIntPayment = payments.find(p => p.id.startsWith('init_int_'));
+    if (initIntPayment) {
+      if (newPaidInterest > 0) {
+        initIntPayment.amount = newPaidInterest;
+        initIntPayment.status = 'Paid';
+      } else {
+        payments = payments.filter(p => p.id !== initIntPayment.id);
+      }
+    } else {
+      if (newPaidInterest > 0) {
+        payments.push({
+          id: 'init_int_' + Math.random().toString(36).substr(2, 9),
+          date: data.startDate || oldC.startDate || getLocalToday(),
+          amount: newPaidInterest,
+          type: 'interest',
+          status: 'Paid'
+        });
+      }
+    }
+  }
+  
+  const newPaidPrincipal = data.paidPrincipal !== undefined ? Number(data.paidPrincipal) : getCustomerPaidPrincipal(oldC);
+  const currentPaidPrincipal = getCustomerPaidPrincipal(oldC);
+  if (newPaidPrincipal !== currentPaidPrincipal) {
+    const initPriPayment = payments.find(p => p.id.startsWith('init_pri_'));
+    if (initPriPayment) {
+      if (newPaidPrincipal > 0) {
+        initPriPayment.amount = newPaidPrincipal;
+        initPriPayment.status = 'Paid';
+      } else {
+        payments = payments.filter(p => p.id !== initPriPayment.id);
+      }
+    } else {
+      if (newPaidPrincipal > 0) {
+        payments.push({
+          id: 'init_pri_' + Math.random().toString(36).substr(2, 9),
+          date: data.startDate || oldC.startDate || getLocalToday(),
+          amount: newPaidPrincipal,
+          type: 'principal',
+          status: 'Paid'
+        });
+      }
+    }
+  }
+
   const c = {
-    ...state.customers[idx],
+    ...oldC,
     name:      data.name.trim(),
     phone:     data.phone.trim(),
     adaguId:   data.adaguId.trim(),
@@ -1815,19 +1923,19 @@ function updateCustomer(id, data) {
     agentCommissionRate: data.hasAgent ? Number(data.agentCommissionRate) : null,
     agentCommissionType: data.hasAgent && data.loanType === 'daily' ? (data.agentCommissionType || 'monthly') : 'monthly',
     // Daily profit-split settings (only relevant for daily loans)
-    dailyMethod:          data.loanType === 'daily' ? (data.dailyMethod || state.customers[idx].dailyMethod || 'split') : null,
-    dailyInvestorPayout:  data.loanType === 'daily' ? (Number(data.dailyInvestorPayout) || state.customers[idx].dailyInvestorPayout || null) : null,
-    dailyAgentPayout:     data.loanType === 'daily' ? (Number(data.dailyAgentPayout) || state.customers[idx].dailyAgentPayout || null) : null,
+    dailyMethod:          data.loanType === 'daily' ? (data.dailyMethod || oldC.dailyMethod || 'split') : null,
+    dailyInvestorPayout:  data.loanType === 'daily' ? (Number(data.dailyInvestorPayout) || oldC.dailyInvestorPayout || null) : null,
+    dailyAgentPayout:     data.loanType === 'daily' ? (Number(data.dailyAgentPayout) || oldC.dailyAgentPayout || null) : null,
     // Custom split percentages
-    investorSplitPercent: data.investorSplitPercent !== undefined ? Number(data.investorSplitPercent) : (state.customers[idx].investorSplitPercent || null),
-    agentSplitPercent:    data.agentSplitPercent !== undefined ? Number(data.agentSplitPercent) : (state.customers[idx].agentSplitPercent || null),
-    ownerSplitPercent:    data.ownerSplitPercent !== undefined ? Number(data.ownerSplitPercent) : (state.customers[idx].ownerSplitPercent || null),
+    investorSplitPercent: data.investorSplitPercent !== undefined ? Number(data.investorSplitPercent) : (oldC.investorSplitPercent || null),
+    agentSplitPercent:    data.agentSplitPercent !== undefined ? Number(data.agentSplitPercent) : (oldC.agentSplitPercent || null),
+    ownerSplitPercent:    data.ownerSplitPercent !== undefined ? Number(data.ownerSplitPercent) : (oldC.ownerSplitPercent || null),
     // Photo proof
-    jewelPhoto:           data.jewelPhoto !== undefined ? data.jewelPhoto : (state.customers[idx].jewelPhoto || null),
-    // Payments tracking
-    paidInterest:         data.paidInterest !== undefined ? Number(data.paidInterest) : (state.customers[idx].paidInterest || 0),
-    paidPrincipal:        data.paidPrincipal !== undefined ? Number(data.paidPrincipal) : (state.customers[idx].paidPrincipal || 0),
+    jewelPhoto:           data.jewelPhoto !== undefined ? data.jewelPhoto : (oldC.jewelPhoto || null),
     notes:     (data.notes || '').trim(),
+    payments,
+    paidInterest: getCustomerPaidInterest({ payments }),
+    paidPrincipal: getCustomerPaidPrincipal({ payments }),
     updatedAt: new Date().toISOString()
   };
   dbSaveCustomer(c);
@@ -2171,22 +2279,21 @@ function showProfitLedgerModal() {
     
     let realized = 0;
     let remainingInterestDue = 0;
+    const interestPaid = getCustomerPaidInterest(c);
     
     if (c.loanType === 'monthly') {
       const rate = MONTHLY_CUSTOMER_RATE - INVESTOR_RATE - (c.hasAgent ? AGENT_COMMISSION_RATE : 0);
       const ownerFraction = rate / MONTHLY_CUSTOMER_RATE;
-      realized = (c.paidInterest || 0) * ownerFraction;
+      realized = interestPaid * ownerFraction;
       
       const interestAccrued = Math.round(getAccruedInterest(c));
-      remainingInterestDue = Math.max(0, interestAccrued - (c.paidInterest || 0));
+      remainingInterestDue = Math.max(0, interestAccrued - interestPaid);
     } else {
       const isAjaj = c.name && c.name.toLowerCase().includes('ajaj');
       const customDailyRate = isAjaj ? 500 : (Number(c.dailyRate) || 0);
       const ownerFraction = customDailyRate > 0 ? ((Math.max(0, customDailyRate - (isAjaj ? 0 : ((c.dailyMethod === 'custom' ? Number(c.dailyInvestorPayout) : Number(c.investorSplitPercent)) || 0)) - (c.hasAgent ? (isAjaj ? 0 : ((c.dailyMethod === 'custom' ? Number(c.dailyAgentPayout) : Number(c.agentSplitPercent)) || 0)) : 0))) / customDailyRate) : 0;
       
-      realized = (c.payments || [])
-        .filter(p => p.type === 'interest')
-        .reduce((sum, p) => sum + (p.amount * ownerFraction), 0);
+      realized = interestPaid * ownerFraction;
         
       let startD = c.startDate || c.createdAt?.slice(0, 10);
       if (isAjaj) {
@@ -2201,7 +2308,6 @@ function showProfitLedgerModal() {
         elapsedDays = 11;
       }
       const totalInterestDue = elapsedDays * customDailyRate;
-      const interestPaid = Number(c.paidInterest) || 0;
       remainingInterestDue = totalInterestDue - interestPaid;
     }
     
@@ -2243,7 +2349,7 @@ function showProfitLedgerModal() {
 function downloadUnpaidInterestPDF() {
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF();
-  doc.setLineHeightFactor(1.5);
+  doc.setLineHeightFactor(1.15);
 
   let totalRealizedProfit = 0;
   let totalPendingInterest = 0;
@@ -2256,22 +2362,21 @@ function downloadUnpaidInterestPDF() {
     
     let realized = 0;
     let remainingInterestDue = 0;
+    const interestPaid = getCustomerPaidInterest(c);
     
     if (c.loanType === 'monthly') {
       const rate = MONTHLY_CUSTOMER_RATE - INVESTOR_RATE - (c.hasAgent ? AGENT_COMMISSION_RATE : 0);
       const ownerFraction = rate / MONTHLY_CUSTOMER_RATE;
-      realized = (c.paidInterest || 0) * ownerFraction;
+      realized = interestPaid * ownerFraction;
       
       const interestAccrued = Math.round(getAccruedInterest(c));
-      remainingInterestDue = Math.max(0, interestAccrued - (c.paidInterest || 0));
+      remainingInterestDue = Math.max(0, interestAccrued - interestPaid);
     } else {
       const isAjaj = c.name && c.name.toLowerCase().includes('ajaj');
       const customDailyRate = isAjaj ? 500 : (Number(c.dailyRate) || 0);
       const ownerFraction = customDailyRate > 0 ? ((Math.max(0, customDailyRate - (isAjaj ? 0 : ((c.dailyMethod === 'custom' ? Number(c.dailyInvestorPayout) : Number(c.investorSplitPercent)) || 0)) - (c.hasAgent ? (isAjaj ? 0 : ((c.dailyMethod === 'custom' ? Number(c.dailyAgentPayout) : Number(c.agentSplitPercent)) || 0)) : 0))) / customDailyRate) : 0;
       
-      realized = (c.payments || [])
-        .filter(p => p.type === 'interest')
-        .reduce((sum, p) => sum + (p.amount * ownerFraction), 0);
+      realized = interestPaid * ownerFraction;
         
       let startD = c.startDate || c.createdAt?.slice(0, 10);
       if (isAjaj) {
@@ -2286,7 +2391,6 @@ function downloadUnpaidInterestPDF() {
         elapsedDays = 11;
       }
       const totalInterestDue = elapsedDays * customDailyRate;
-      const interestPaid = Number(c.paidInterest) || 0;
       remainingInterestDue = totalInterestDue - interestPaid;
     }
     
@@ -2440,7 +2544,7 @@ function downloadMonthReports(monthIndex) {
 function downloadMonthlyInterestMonthReport(monthName, startDate, endDate) {
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF();
-  doc.setLineHeightFactor(1.5);
+  doc.setLineHeightFactor(1.15);
 
   let totalGross = 0;
   let totalRealizedOwner = 0;
@@ -2597,7 +2701,7 @@ function downloadMonthlyInterestMonthReport(monthName, startDate, endDate) {
 function downloadDailyInterestMonthReport(monthName, startDate, endDate) {
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF();
-  doc.setLineHeightFactor(1.5);
+  doc.setLineHeightFactor(1.15);
 
   let totalGross = 0;
   let totalAgentComm = 0;
@@ -3753,7 +3857,7 @@ function downloadLoanSummaryPDF(customerId) {
 
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF();
-  doc.setLineHeightFactor(1.5);
+  doc.setLineHeightFactor(1.15);
 
   const p = Number(c.principal);
   const today = getLocalToday();
@@ -4067,8 +4171,26 @@ function downloadLoanSummaryPDF(customerId) {
     doc.text("Collateral / Jewel Verification Proof", 20, y + 8);
 
     try {
-      // Bounded and Centered image proof (70mm width, 44mm height, starting at y+12)
-      doc.addImage(c.jewelPhoto, 'JPEG', 70, y + 12, 70, 44);
+      const props = doc.getImageProperties(c.jewelPhoto);
+      const imgWidth = props.width;
+      const imgHeight = props.height;
+      const ratio = imgWidth / imgHeight;
+      
+      const maxW = 160;
+      const maxH = 44;
+      
+      let targetW = maxW;
+      let targetH = maxW / ratio;
+      
+      if (targetH > maxH) {
+        targetH = maxH;
+        targetW = maxH * ratio;
+      }
+      
+      const targetX = 15 + (180 - targetW) / 2;
+      const targetY = y + 12 + (maxH - targetH) / 2;
+      
+      doc.addImage(c.jewelPhoto, 'JPEG', targetX, targetY, targetW, targetH);
     } catch (err) {
       console.error("Error rendering jewel photo inside summary PDF:", err);
       doc.setFont("helvetica", "italic");
@@ -4112,7 +4234,7 @@ function downloadCustomerReceiptPDF(customerId) {
 
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF();
-  doc.setLineHeightFactor(1.5);
+  doc.setLineHeightFactor(1.15);
 
   const p = Number(c.principal);
   const today = getLocalToday();
@@ -4358,8 +4480,26 @@ function downloadCustomerReceiptPDF(customerId) {
     doc.text("Collateral / Jewel Verification Proof", 20, y + 8);
 
     try {
-      // Bounded and Centered image proof (70mm width, 44mm height, starting at y+12)
-      doc.addImage(c.jewelPhoto, 'JPEG', 70, y + 12, 70, 44);
+      const props = doc.getImageProperties(c.jewelPhoto);
+      const imgWidth = props.width;
+      const imgHeight = props.height;
+      const ratio = imgWidth / imgHeight;
+      
+      const maxW = 160;
+      const maxH = 44;
+      
+      let targetW = maxW;
+      let targetH = maxW / ratio;
+      
+      if (targetH > maxH) {
+        targetH = maxH;
+        targetW = maxH * ratio;
+      }
+      
+      const targetX = 15 + (180 - targetW) / 2;
+      const targetY = y + 12 + (maxH - targetH) / 2;
+      
+      doc.addImage(c.jewelPhoto, 'JPEG', targetX, targetY, targetW, targetH);
     } catch (err) {
       console.error("Error rendering jewel photo inside receipt PDF:", err);
       doc.setFont("helvetica", "italic");
@@ -5589,7 +5729,11 @@ function startFirestoreSync(uid) {
     .onSnapshot(snapshot => {
       const customers = [];
       snapshot.forEach(doc => {
-        customers.push(doc.data());
+        const c = doc.data();
+        ensureCustomerPaymentsInitialized(c);
+        c.paidInterest = getCustomerPaidInterest(c);
+        c.paidPrincipal = getCustomerPaidPrincipal(c);
+        customers.push(c);
       });
       state.customers = customers;
       renderAll();
