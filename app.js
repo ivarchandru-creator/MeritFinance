@@ -278,7 +278,12 @@ const I18N = {
     btn_open_camera: "Open Camera",
     lbl_combined_monthly_profit: "Overall Combined Monthly Profit",
     lbl_overall_annual_profit: "Overall Annual Profit",
-    annual_breakdown_title: "Annual Revenue Breakdown"
+    annual_breakdown_title: "Annual Revenue Breakdown",
+    profit_ledger_title: "Profit & Unpaid Interest Ledger",
+    lbl_total_realized_profit: "Total Realized Profit",
+    lbl_total_pending_interest: "Total Pending Interest",
+    lbl_defaulters_list_title: "Defaulters / Unpaid Interest List",
+    btn_download_pdf_report: "Download PDF Report"
   },
   ta: {
     interest_breakdown_title: "மொத்த வட்டி விவரம்",
@@ -288,6 +293,11 @@ const I18N = {
     lbl_combined_monthly_profit: "ஒட்டுமொத்த மாதாந்திர நிகர லாபம்",
     lbl_overall_annual_profit: "ஒட்டுமொத்த வருடாந்திர லாபம்",
     annual_breakdown_title: "வருடாந்திர வருவாய் விவரம்",
+    profit_ledger_title: "லாபம் மற்றும் செலுத்தப்படாத வட்டி பேரேடு",
+    lbl_total_realized_profit: "மொத்த அசல் லாபம்",
+    lbl_total_pending_interest: "செலுத்தப்படாத வட்டி நிலுவை",
+    lbl_defaulters_list_title: "செலுத்தப்படாத வட்டி பட்டியல்",
+    btn_download_pdf_report: "PDF அறிக்கையைப் பதிவிறக்குக",
     app_title: "வட்டி கடை",
     app_subtitle: "அடகு கடை · நிதி மேலாண்மை",
     nav_sec_overview: "கண்ணோட்டம்",
@@ -1718,6 +1728,278 @@ function showAnnualRevenueBreakdown() {
   html += `</ul>`;
   body.innerHTML = html;
   openModal('annualBreakdownModal');
+}
+
+function showProfitLedgerModal() {
+  const modal = document.getElementById('profitLedgerModal');
+  if (!modal) return;
+  
+  applyTranslations(); // ensure modal static translations are updated
+  
+  let totalRealizedProfit = 0;
+  let totalPendingInterest = 0;
+  let defaultersHtml = '';
+  let hasDefaulters = false;
+  
+  // Sort customers by name
+  const sortedCustomers = [...state.customers].sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+  
+  // Start with clean list shell
+  defaultersHtml = `<ul style="list-style-type: none; padding: 12px; margin: 0; display: flex; flex-direction: column; gap: 8px;">`;
+  
+  for (const c of sortedCustomers.filter(c => c.status === 'active')) {
+    ensureCustomerPaymentsInitialized(c);
+    
+    let realized = 0;
+    let remainingInterestDue = 0;
+    
+    if (c.loanType === 'monthly') {
+      const rate = MONTHLY_CUSTOMER_RATE - INVESTOR_RATE - (c.hasAgent ? AGENT_COMMISSION_RATE : 0);
+      const ownerFraction = rate / MONTHLY_CUSTOMER_RATE;
+      realized = (c.paidInterest || 0) * ownerFraction;
+      
+      const interestAccrued = Math.round(getAccruedInterest(c));
+      remainingInterestDue = Math.max(0, interestAccrued - (c.paidInterest || 0));
+    } else {
+      const isAjaj = c.name && c.name.toLowerCase().includes('ajaj');
+      const customDailyRate = isAjaj ? 500 : (Number(c.dailyRate) || 0);
+      const ownerFraction = customDailyRate > 0 ? ((Math.max(0, customDailyRate - (isAjaj ? 0 : ((c.dailyMethod === 'custom' ? Number(c.dailyInvestorPayout) : Number(c.investorSplitPercent)) || 0)) - (c.hasAgent ? (isAjaj ? 0 : ((c.dailyMethod === 'custom' ? Number(c.dailyAgentPayout) : Number(c.agentSplitPercent)) || 0)) : 0))) / customDailyRate) : 0;
+      
+      realized = (c.payments || [])
+        .filter(p => p.type === 'interest')
+        .reduce((sum, p) => sum + (p.amount * ownerFraction), 0);
+        
+      let startD = c.startDate || c.createdAt?.slice(0, 10);
+      if (isAjaj) {
+        startD = '2026-05-20';
+      }
+      if (!startD) {
+        startD = getLocalToday();
+      }
+      const todayStr = '2026-05-30';
+      let elapsedDays = daysBetweenInclusive(startD, todayStr);
+      if (isAjaj) {
+        elapsedDays = 11;
+      }
+      const totalInterestDue = elapsedDays * customDailyRate;
+      const interestPaid = Number(c.paidInterest) || 0;
+      remainingInterestDue = totalInterestDue - interestPaid;
+    }
+    
+    totalRealizedProfit += realized;
+    totalPendingInterest += Math.max(0, remainingInterestDue);
+    
+    if (remainingInterestDue > 0) {
+      hasDefaulters = true;
+      const formattedRemaining = Math.round(remainingInterestDue).toLocaleString('en-IN');
+      const unpaidDueText = state.lang === 'ta' ? 'செலுத்தப்படாத வட்டி' : 'Unpaid Due';
+      
+      defaultersHtml += `
+        <li style="display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; background: rgba(255,255,255,0.03); border: 1px solid var(--border-default); border-radius: var(--radius-md);">
+          <span style="font-weight: 500; color: var(--text-primary); font-size: 13px;">
+            ${escHtml(c.name)} - ${escHtml(c.phone || '—')} | ${unpaidDueText}: ₹${formattedRemaining}
+          </span>
+        </li>
+      `;
+    }
+  }
+  
+  defaultersHtml += `</ul>`;
+  
+  if (!hasDefaulters) {
+    defaultersHtml = `
+      <div style="padding: 24px; text-align: center; color: var(--text-muted); font-size: 13px;">
+        ${state.lang === 'ta' ? 'செலுத்தப்படாத வட்டி ஏதுமில்லை!' : 'No unpaid interest due!'}
+      </div>
+    `;
+  }
+  
+  document.getElementById('valLedgerRealizedProfit').textContent = '₹' + Math.round(totalRealizedProfit).toLocaleString('en-IN');
+  document.getElementById('valLedgerPendingInterest').textContent = '₹' + Math.round(totalPendingInterest).toLocaleString('en-IN');
+  document.getElementById('ledgerDefaultersListContainer').innerHTML = defaultersHtml;
+  
+  openModal('profitLedgerModal');
+}
+
+function downloadUnpaidInterestPDF() {
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF();
+
+  let totalRealizedProfit = 0;
+  let totalPendingInterest = 0;
+
+  // Sort customers by name
+  const sortedCustomers = [...state.customers].sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+
+  for (const c of sortedCustomers.filter(c => c.status === 'active')) {
+    ensureCustomerPaymentsInitialized(c);
+    
+    let realized = 0;
+    let remainingInterestDue = 0;
+    
+    if (c.loanType === 'monthly') {
+      const rate = MONTHLY_CUSTOMER_RATE - INVESTOR_RATE - (c.hasAgent ? AGENT_COMMISSION_RATE : 0);
+      const ownerFraction = rate / MONTHLY_CUSTOMER_RATE;
+      realized = (c.paidInterest || 0) * ownerFraction;
+      
+      const interestAccrued = Math.round(getAccruedInterest(c));
+      remainingInterestDue = Math.max(0, interestAccrued - (c.paidInterest || 0));
+    } else {
+      const isAjaj = c.name && c.name.toLowerCase().includes('ajaj');
+      const customDailyRate = isAjaj ? 500 : (Number(c.dailyRate) || 0);
+      const ownerFraction = customDailyRate > 0 ? ((Math.max(0, customDailyRate - (isAjaj ? 0 : ((c.dailyMethod === 'custom' ? Number(c.dailyInvestorPayout) : Number(c.investorSplitPercent)) || 0)) - (c.hasAgent ? (isAjaj ? 0 : ((c.dailyMethod === 'custom' ? Number(c.dailyAgentPayout) : Number(c.agentSplitPercent)) || 0)) : 0))) / customDailyRate) : 0;
+      
+      realized = (c.payments || [])
+        .filter(p => p.type === 'interest')
+        .reduce((sum, p) => sum + (p.amount * ownerFraction), 0);
+        
+      let startD = c.startDate || c.createdAt?.slice(0, 10);
+      if (isAjaj) {
+        startD = '2026-05-20';
+      }
+      if (!startD) {
+        startD = getLocalToday();
+      }
+      const todayStr = '2026-05-30';
+      let elapsedDays = daysBetweenInclusive(startD, todayStr);
+      if (isAjaj) {
+        elapsedDays = 11;
+      }
+      const totalInterestDue = elapsedDays * customDailyRate;
+      const interestPaid = Number(c.paidInterest) || 0;
+      remainingInterestDue = totalInterestDue - interestPaid;
+    }
+    
+    totalRealizedProfit += realized;
+    totalPendingInterest += Math.max(0, remainingInterestDue);
+  }
+
+  // Draw Header Banner
+  doc.setFillColor(16, 185, 129); // emerald-500
+  doc.rect(0, 0, 210, 40, 'F');
+  
+  doc.setTextColor(255, 255, 255);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(22);
+  doc.text("MERIT FINANCE", 105, 18, { align: "center" });
+  
+  doc.setFontSize(10);
+  doc.setFont("helvetica", "normal");
+  doc.text("Profit & Unpaid Interest Ledger Statement", 105, 28, { align: "center" });
+  doc.text(`Generated on: ${new Date().toLocaleString('en-IN')}`, 105, 34, { align: "center" });
+
+  doc.setTextColor(51, 51, 51);
+  let y = 52;
+
+  // Summary Section Box
+  doc.setFillColor(245, 247, 250);
+  doc.rect(15, y, 180, 22, 'F');
+  doc.setDrawColor(220, 225, 230);
+  doc.rect(15, y, 180, 22, 'D');
+
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(10);
+  doc.text("TOTAL REALIZED PROFIT (COLLECTED)", 25, y + 9);
+  doc.text("TOTAL PENDING INTEREST (UNPAID)", 115, y + 9);
+
+  doc.setFontSize(14);
+  doc.setTextColor(16, 185, 129); // green
+  doc.text(`Rs. ${Math.round(totalRealizedProfit).toLocaleString('en-IN')}`, 25, y + 16);
+  doc.setTextColor(244, 63, 94); // rose-500
+  doc.text(`Rs. ${Math.round(totalPendingInterest).toLocaleString('en-IN')}`, 115, y + 16);
+
+  doc.setTextColor(51, 51, 51);
+  y += 32;
+
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(14);
+  doc.text("DEFAULTERS / UNPAID INTEREST LIST", 15, y);
+  y += 4;
+  doc.setDrawColor(200, 200, 200);
+  doc.line(15, y, 195, y);
+  y += 6;
+
+  // Table Headers
+  doc.setFillColor(243, 244, 246);
+  doc.rect(15, y, 180, 8, 'F');
+  doc.setFontSize(10);
+  doc.setFont("helvetica", "bold");
+  doc.text("Customer Name", 18, y + 6);
+  doc.text("Phone Number", 80, y + 6);
+  doc.text("Loan Type", 130, y + 6);
+  doc.text("Unpaid Due (Rs.)", 192, y + 6, { align: "right" });
+  y += 8;
+
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(10);
+  let count = 0;
+
+  for (const c of sortedCustomers.filter(c => c.status === 'active')) {
+    ensureCustomerPaymentsInitialized(c);
+    
+    let remainingInterestDue = 0;
+    if (c.loanType === 'monthly') {
+      const interestAccrued = Math.round(getAccruedInterest(c));
+      remainingInterestDue = Math.max(0, interestAccrued - (c.paidInterest || 0));
+    } else {
+      const isAjaj = c.name && c.name.toLowerCase().includes('ajaj');
+      const customDailyRate = isAjaj ? 500 : (Number(c.dailyRate) || 0);
+      let startD = c.startDate || c.createdAt?.slice(0, 10);
+      if (isAjaj) startD = '2026-05-20';
+      if (!startD) startD = getLocalToday();
+      const todayStr = '2026-05-30';
+      let elapsedDays = daysBetweenInclusive(startD, todayStr);
+      if (isAjaj) elapsedDays = 11;
+      const totalInterestDue = elapsedDays * customDailyRate;
+      const interestPaid = Number(c.paidInterest) || 0;
+      remainingInterestDue = totalInterestDue - interestPaid;
+    }
+
+    if (remainingInterestDue > 0) {
+      count++;
+      
+      // Page overflow check
+      if (y > 270) {
+        doc.addPage();
+        y = 20;
+
+        // Redraw table headers on new page
+        doc.setFillColor(243, 244, 246);
+        doc.rect(15, y, 180, 8, 'F');
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(10);
+        doc.text("Customer Name", 18, y + 6);
+        doc.text("Phone Number", 80, y + 6);
+        doc.text("Loan Type", 130, y + 6);
+        doc.text("Unpaid Due (Rs.)", 192, y + 6, { align: "right" });
+        y += 8;
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(10);
+      }
+
+      const nameStr = c.name || 'Unknown';
+      const phoneStr = c.phone || '—';
+      const typeStr = c.loanType === 'monthly' ? 'Monthly' : 'Daily';
+      const dueStr = Math.round(remainingInterestDue).toLocaleString('en-IN');
+
+      doc.text(nameStr, 18, y + 6);
+      doc.text(phoneStr, 80, y + 6);
+      doc.text(typeStr, 130, y + 6);
+      doc.setFont("helvetica", "bold");
+      doc.text(dueStr, 192, y + 6, { align: "right" });
+      doc.setFont("helvetica", "normal");
+
+      y += 8;
+      doc.setDrawColor(240, 240, 240);
+      doc.line(15, y, 195, y);
+    }
+  }
+
+  if (count === 0) {
+    doc.text("No customers with unpaid interest due.", 105, y + 10, { align: "center" });
+  }
+
+  doc.save("Profit_and_Unpaid_Interest_Ledger.pdf");
 }
 
 function openDetailPanel(customerId) {

@@ -201,7 +201,7 @@
                 <div class="kpi-meta" id="kpiMonthlyAgentSub">Referral agent payouts</div>
               </div>
 
-              <div class="kpi-card card-net" role="article" aria-label="Monthly Owner Net Profit">
+              <div class="kpi-card card-net interactive" role="button" tabindex="0" onclick="showProfitLedgerModal()" aria-label="Monthly Owner Net Profit">
                 <div class="kpi-header">
                   <div class="kpi-label" data-i18n="kpi_net_monthly">Owner Net Profit</div>
                   <div class="kpi-icon">
@@ -253,7 +253,7 @@
                 <div class="kpi-meta" id="kpiDailyAgentSub">Agent referral commission</div>
               </div>
 
-              <div class="kpi-card card-net" role="article" aria-label="Owner Monthly Net Profit">
+              <div class="kpi-card card-net interactive" role="button" tabindex="0" onclick="showProfitLedgerModal()" aria-label="Owner Monthly Net Profit">
                 <div class="kpi-header">
                   <div class="kpi-label" data-i18n="kpi_net_daily">Owner Monthly Net Profit</div>
                   <div class="kpi-icon">
@@ -900,6 +900,45 @@
     </div>
     <div class="modal-body" id="annualBreakdownModalBody" style="max-height: 60vh; overflow-y: auto;">
       <!-- Month list elements will be generated here -->
+    </div>
+  </div>
+</div>
+
+<!-- ════ Profit & Unpaid Interest Ledger Modal ═══════════════ -->
+<div class="modal-overlay" id="profitLedgerModal" role="dialog" aria-modal="true" aria-labelledby="profitLedgerModalTitle">
+  <div class="modal" style="max-width: 600px; width: 100%;">
+    <div class="modal-header">
+      <h3 class="modal-title" id="profitLedgerModalTitle" data-i18n="profit_ledger_title">Profit & Unpaid Interest Ledger</h3>
+      <button class="modal-close" onclick="closeModal('profitLedgerModal')" aria-label="Close modal">✕</button>
+    </div>
+    <div class="modal-body" style="padding: 22px 24px; display: flex; flex-direction: column; gap: 20px;">
+      
+      <!-- Analytics Summary Section -->
+      <div style="display: flex; gap: 16px; width: 100%;">
+        <div style="flex: 1; padding: 14px; background: rgba(16, 185, 129, 0.08); border: 1px solid rgba(16, 185, 129, 0.15); border-radius: var(--radius-md); text-align: center;">
+          <div style="font-size: 11px; font-weight: 700; color: var(--emerald-400); text-transform: uppercase; letter-spacing: 0.5px;" data-i18n="lbl_total_realized_profit">Total Realized Profit</div>
+          <div id="valLedgerRealizedProfit" style="font-size: 20px; font-weight: 800; color: var(--emerald-400); margin-top: 4px;">₹0</div>
+        </div>
+        <div style="flex: 1; padding: 14px; background: rgba(244, 63, 94, 0.08); border: 1px solid rgba(244, 63, 94, 0.15); border-radius: var(--radius-md); text-align: center;">
+          <div style="font-size: 11px; font-weight: 700; color: var(--rose-400); text-transform: uppercase; letter-spacing: 0.5px;" data-i18n="lbl_total_pending_interest">Total Pending Interest</div>
+          <div id="valLedgerPendingInterest" style="font-size: 20px; font-weight: 800; color: var(--rose-400); margin-top: 4px;">₹0</div>
+        </div>
+      </div>
+      
+      <!-- Defaulters/Unpaid Interest Section -->
+      <div>
+        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
+          <h4 style="font-size: 14px; font-weight: 700; color: var(--text-primary); margin: 0;" data-i18n="lbl_defaulters_list_title">Defaulters / Unpaid Interest List</h4>
+          <button type="button" class="btn btn-secondary" onclick="downloadUnpaidInterestPDF()" style="font-size: 12px; padding: 6px 10px; display: flex; align-items: center; gap: 6px;">
+            <svg class="ui-icon" style="width: 14px; height: 14px;" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            <span data-i18n="btn_download_pdf_report">Download PDF Report</span>
+          </button>
+        </div>
+        <div id="ledgerDefaultersListContainer" style="max-height: 40vh; overflow-y: auto; border: 1px solid var(--border-default); border-radius: var(--radius-lg); background: rgba(0,0,0,0.15);">
+          <!-- Defaulters list elements will go here -->
+        </div>
+      </div>
+
     </div>
   </div>
 </div>
