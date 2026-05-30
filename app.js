@@ -786,41 +786,39 @@ function getDailyAccruedMetricsForRange(c, fromDate, toDate) {
 }
 
 function getDailyLoanMetricsForPaidDays(c) {
-  let gross = 0;
-  let investorCost = 0;
-  let agentPay = 0;
-  let ownerNet = 0;
+  ensureCustomerPaymentsInitialized(c);
+  const paidInterest = (c.payments || []).filter(p => p.type === 'interest').reduce((s, p) => s + p.amount, 0);
   
   const rate = Number(c.dailyRate) || 0;
-  const method = c.dailyMethod || 'split';
-  const activeDates = getDailyActiveDates(c);
-  const paidDatesSet = new Set(c.dailyPaidDates || []);
-  
-  for (const dateStr of activeDates) {
-    if (!paidDatesSet.has(dateStr)) continue;
-    
-    const activeP = getActivePrincipalForDate(c, dateStr);
-    const dayGross = rate;
-    
-    const dayInv = c.dailyMethod === 'custom'
-      ? (Number(c.dailyInvestorPayout) || 0)
-      : (Number(c.investorSplitPercent) || 0);
-      
-    const dayAgent = c.hasAgent
-      ? (c.dailyMethod === 'custom'
-         ? (Number(c.dailyAgentPayout) || 0)
-         : (Number(c.agentSplitPercent) || 0))
-      : 0;
-
-    const dayOwner = Math.max(0, dayGross - dayInv - dayAgent);
-    
-    gross += dayGross;
-    investorCost += dayInv;
-    agentPay += dayAgent;
-    ownerNet += dayOwner;
+  if (rate <= 0 || paidInterest <= 0) {
+    return { gross: 0, investorCost: 0, agentPay: 0, ownerNet: 0 };
   }
   
-  return { gross, investorCost, agentPay, ownerNet };
+  const invPayout = c.dailyMethod === 'custom'
+    ? (Number(c.dailyInvestorPayout) || 0)
+    : (Number(c.investorSplitPercent) || 0);
+    
+  const agentPayout = c.hasAgent
+    ? (c.dailyMethod === 'custom'
+       ? (Number(c.dailyAgentPayout) || 0)
+       : (Number(c.agentSplitPercent) || 0))
+    : 0;
+    
+  const ownerPayout = Math.max(0, rate - invPayout - agentPayout);
+  
+  const ratioInv = invPayout / rate;
+  const ratioAgent = agentPayout / rate;
+  
+  const investorCost = paidInterest * ratioInv;
+  const agentPay = paidInterest * ratioAgent;
+  const ownerNet = paidInterest - investorCost - agentPay;
+  
+  return {
+    gross: paidInterest,
+    investorCost: Math.round(investorCost),
+    agentPay: Math.round(agentPay),
+    ownerNet: Math.round(ownerNet)
+  };
 }
 
 function daysFromNow(dateStr) {
@@ -2277,20 +2275,27 @@ function renderDetailPanel() {
 
     const recordPaymentFormHtml = `
       <div class="detail-section ledger-card" style="background:rgba(255,255,255,0.02);border:1px solid var(--border-card);border-radius:12px;padding:12px;margin-top:14px">
-        <div class="detail-section-title" style="margin-bottom:10px">${langIsTA ? 'அசல் கட்டணத்தைப் பதிவுசெய்க' : 'Record Principal Payment'}</div>
-        <div style="display:grid;grid-template-columns:1.2fr 1fr;gap:10px;margin-bottom:12px;align-items:end">
+        <div class="detail-section-title" style="margin-bottom:10px">${langIsTA ? 'புதிய கட்டணத்தைப் பதிவுசெய்க' : 'Record New Payment'}</div>
+        <div style="display:grid;grid-template-columns:1.2fr 1fr;gap:10px;margin-bottom:10px">
+          <div class="form-group" style="margin:0">
+            <label class="form-label" style="font-size:11px">${langIsTA ? 'கட்டண வகை' : 'Payment Type'}</label>
+            <select id="recPaymentType" class="form-input" style="height:32px;font-size:13px;padding:4px 8px;background:var(--bg-card);border-radius:8px">
+              <option value="interest">${langIsTA ? 'வட்டி செலுத்துதல்' : 'Pay Interest'}</option>
+              <option value="principal">${langIsTA ? 'அசல் செலுத்துதல்' : 'Pay Principal'}</option>
+            </select>
+          </div>
           <div class="form-group" style="margin:0">
             <label class="form-label" style="font-size:11px">${langIsTA ? 'தொகை (₹)' : 'Amount (₹)'}</label>
             <input type="number" id="recPaymentAmount" class="form-input" placeholder="0" min="1" style="height:32px;font-size:13px;padding:4px 8px" />
           </div>
+        </div>
+        <div style="display:grid;grid-template-columns:1.2fr 1fr;gap:10px;margin-bottom:12px;align-items:end">
           <div class="form-group" style="margin:0">
             <label class="form-label" style="font-size:11px">${langIsTA ? 'தேதி' : 'Date'}</label>
             <input type="date" id="recPaymentDate" class="form-input" style="height:32px;font-size:13px;padding:4px 8px" value="${new Date().toISOString().slice(0, 10)}" />
           </div>
-        </div>
-        <div style="display:flex;justify-content:flex-end">
-          <button class="btn btn-primary" onclick="addDailyPrincipalPayment('${c.id}')" style="height:32px;font-size:12px;padding:0 16px;border-radius:8px;font-weight:600">
-            ${langIsTA ? 'பதிவுசெய்க' : 'Record Principal'}
+          <button class="btn btn-primary" onclick="addDailyPayment('${c.id}')" style="height:32px;font-size:12px;padding:0 12px;border-radius:8px;font-weight:600">
+            ${langIsTA ? 'பதிவுசெய்க' : 'Record Payment'}
           </button>
         </div>
       </div>
@@ -2298,15 +2303,7 @@ function renderDetailPanel() {
 
     const remainingP = Math.max(0, p - (c.paidPrincipal || 0));
     const totalAccruedInterest = Math.round(getAccruedInterest(c));
-    const paidDatesSet2 = new Set(c.dailyPaidDates || []);
-    let totalPaidInterest = 0;
-    const rate2 = Number(c.dailyRate) || 0;
-    for (const d of activeDates) {
-      if (paidDatesSet2.has(d)) {
-        totalPaidInterest += rate2;
-      }
-    }
-    const interestPaid = Math.round(totalPaidInterest);
+    const interestPaid = Number(c.paidInterest) || 0;
     const pendingInterest = Math.max(0, totalAccruedInterest - interestPaid);
     const remainingTotal = remainingP + pendingInterest;
 
@@ -2382,9 +2379,9 @@ function renderDetailPanel() {
       </div>
     `;
 
-    const historyRows = (c.payments || []).filter(pay => pay.type === 'principal').map(pay => {
-      const typeLabel = langIsTA ? 'அசல்' : 'Principal';
-      const typeColor = 'var(--blue-400)';
+    const historyRows = (c.payments || []).map(pay => {
+      const typeLabel = pay.type === 'principal' ? (langIsTA ? 'அசல்' : 'Principal') : (langIsTA ? 'வட்டி' : 'Interest');
+      const typeColor = pay.type === 'principal' ? 'var(--blue-400)' : 'var(--emerald-400)';
       return `
         <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.05);font-size:12px">
           <div style="display:flex;flex-direction:column">
@@ -3130,42 +3127,54 @@ function toggleDailyDatePaid(customerId, dateStr) {
   }
   const paidDates = [...c.dailyPaidDates];
   const dateIdx = paidDates.indexOf(dateStr);
+  
+  ensureCustomerPaymentsInitialized(c);
+  let updatedPayments = [...c.payments];
+  const rate = Number(c.dailyRate) || 0;
+  
   if (dateIdx > -1) {
+    // Unchecking: remove from paidDates and find the corresponding interest payment for this date
     paidDates.splice(dateIdx, 1);
+    const payIdx = updatedPayments.findIndex(p => p.type === 'interest' && p.date === dateStr);
+    if (payIdx > -1) {
+      updatedPayments.splice(payIdx, 1);
+    }
   } else {
+    // Checking: add to paidDates and add an interest payment for this date
     paidDates.push(dateStr);
+    updatedPayments.push({
+      id: 'pay_int_' + Math.random().toString(36).substr(2, 9),
+      date: dateStr,
+      amount: rate,
+      type: 'interest'
+    });
   }
+  
+  const paidInterest = updatedPayments.filter(p => p.type === 'interest').reduce((s, p) => s + p.amount, 0);
+  const paidPrincipal = updatedPayments.filter(p => p.type === 'principal').reduce((s, p) => s + p.amount, 0);
   
   state.customers[idx] = {
     ...c,
-    dailyPaidDates: paidDates
+    dailyPaidDates: paidDates,
+    payments: updatedPayments,
+    paidInterest,
+    paidPrincipal
   };
-  
-  // Recalculate paidInterest based on paid dates
-  const activeDates = getDailyActiveDates(state.customers[idx]);
-  const paidDatesSet = new Set(paidDates);
-  let totalPaidInterest = 0;
-  const rate = Number(c.dailyRate) || 0;
-  for (const d of activeDates) {
-    if (paidDatesSet.has(d)) {
-      const activeP = getActivePrincipalForDate(state.customers[idx], d);
-      totalPaidInterest += rate;
-    }
-  }
-  state.customers[idx].paidInterest = Math.round(totalPaidInterest);
   
   dbSaveCustomer(state.customers[idx]);
   renderCustomerList();
   renderDetailPanel();
 }
 
-function addDailyPrincipalPayment(customerId) {
+function addDailyPayment(customerId) {
   const c = state.customers.find(x => x.id === customerId);
   if (!c) return;
+  const typeEl = document.getElementById('recPaymentType');
   const amountEl = document.getElementById('recPaymentAmount');
   const dateEl = document.getElementById('recPaymentDate');
-  if (!amountEl || !dateEl) return;
+  if (!typeEl || !amountEl || !dateEl) return;
 
+  const type = typeEl.value;
   const amount = parseFloat(amountEl.value) || 0;
   const date = dateEl.value;
 
@@ -3185,35 +3194,24 @@ function addDailyPrincipalPayment(customerId) {
     id: 'pay_' + Math.random().toString(36).substr(2, 9),
     date,
     amount,
-    type: 'principal'
+    type
   };
 
   const updatedPayments = [...c.payments, newPayment];
+  const paidInterest = updatedPayments.filter(p => p.type === 'interest').reduce((s, p) => s + p.amount, 0);
   const paidPrincipal = updatedPayments.filter(p => p.type === 'principal').reduce((s, p) => s + p.amount, 0);
 
   state.customers[idx] = {
     ...c,
     payments: updatedPayments,
+    paidInterest,
     paidPrincipal
   };
-
-  // Recalculate paidInterest because the principal reduction changed the historical daily interest amounts
-  const activeDates = getDailyActiveDates(state.customers[idx]);
-  const paidDatesSet = new Set(state.customers[idx].dailyPaidDates || []);
-  let totalPaidInterest = 0;
-  const rate = Number(c.dailyRate) || 0;
-  for (const d of activeDates) {
-    if (paidDatesSet.has(d)) {
-      const activeP = getActivePrincipalForDate(state.customers[idx], d);
-      totalPaidInterest += rate;
-    }
-  }
-  state.customers[idx].paidInterest = Math.round(totalPaidInterest);
 
   dbSaveCustomer(state.customers[idx]);
   renderCustomerList();
   renderDetailPanel();
-  showToast("Principal payment recorded successfully", "success");
+  showToast("Payment recorded successfully", "success");
 }
 
 function deleteDailyPayment(customerId, paymentId) {
@@ -3225,27 +3223,27 @@ function deleteDailyPayment(customerId, paymentId) {
   const idx = state.customers.findIndex(x => x.id === customerId);
   ensureCustomerPaymentsInitialized(c);
 
+  const deletedPayment = c.payments.find(p => p.id === paymentId);
   const updatedPayments = c.payments.filter(p => p.id !== paymentId);
+  
+  const paidInterest = updatedPayments.filter(p => p.type === 'interest').reduce((s, p) => s + p.amount, 0);
   const paidPrincipal = updatedPayments.filter(p => p.type === 'principal').reduce((s, p) => s + p.amount, 0);
+
+  let dailyPaidDates = [...(c.dailyPaidDates || [])];
+  if (deletedPayment && deletedPayment.type === 'interest') {
+    const dIdx = dailyPaidDates.indexOf(deletedPayment.date);
+    if (dIdx > -1) {
+      dailyPaidDates.splice(dIdx, 1);
+    }
+  }
 
   state.customers[idx] = {
     ...c,
     payments: updatedPayments,
-    paidPrincipal
+    paidInterest,
+    paidPrincipal,
+    dailyPaidDates
   };
-
-  // Recalculate paidInterest because the principal reduction changed
-  const activeDates = getDailyActiveDates(state.customers[idx]);
-  const paidDatesSet = new Set(state.customers[idx].dailyPaidDates || []);
-  let totalPaidInterest = 0;
-  const rate = Number(c.dailyRate) || 0;
-  for (const d of activeDates) {
-    if (paidDatesSet.has(d)) {
-      const activeP = getActivePrincipalForDate(state.customers[idx], d);
-      totalPaidInterest += rate;
-    }
-  }
-  state.customers[idx].paidInterest = Math.round(totalPaidInterest);
 
   dbSaveCustomer(state.customers[idx]);
   renderCustomerList();
