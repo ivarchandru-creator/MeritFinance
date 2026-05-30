@@ -2151,55 +2151,7 @@ function renderDetailPanel() {
         </div>
       </div>
     </div>`;
-  })() : (() => {
-    // ── DAILY: dynamic profit-split calculator ──
-    const method = c.dailyMethod || 'split';
-    const today  = getLocalToday();
-    const startD = c.startDate || c.createdAt?.slice(0, 10) || today;
-    const endD   = c.endDate   || today;
-    const days   = daysBetweenInclusive(startD, endD);
-    const dm     = getDailyAccruedMetricsForRange(c, startD, endD);
-
-    const dayInv = method === 'custom' && c.dailyInvestorPayout !== undefined && c.dailyInvestorPayout !== null ? (Number(c.dailyInvestorPayout) || 0) : (Number(c.investorSplitPercent) || 0);
-    const dayAgent = c.hasAgent ? (method === 'custom' && c.dailyAgentPayout !== undefined && c.dailyAgentPayout !== null ? (Number(c.dailyAgentPayout) || 0) : (Number(c.agentSplitPercent) || 0)) : 0;
-    
-    // Calculate current Owner rate dynamically based on active principal today
-    const activeP = getActivePrincipalForDate(c, today);
-    const grossDailyInterest = Number(c.dailyRate) || 0;
-    const currentOwnerRate = Math.max(0, grossDailyInterest - dayInv - dayAgent);
-
-    return `
-    <div class="detail-section">
-      <div class="detail-section-title">
-        <span>${state.lang === 'ta' ? 'தினசரி வட்டி பகிர்வு' : 'Daily Interest Split'}</span>
-      </div>
-      <div class="profit-breakdown" id="dmBreakdown">
-        <div class="profit-row gross">
-          <span class="profit-row-label">${state.lang === 'ta' ? 'மொத்த வட்டி' : 'Gross Interest'} (${days} ${t('days_suffix')})</span>
-          <span class="profit-row-amount">${fmt(dm.gross)}</span>
-        </div>
-        <div class="profit-row deduct">
-          <span class="profit-row-label">
-            ${state.lang === 'ta' ? 'முதலீட்டாளர் பங்கு' : 'Investor Share'} (₹${dayInv}/day)
-          </span>
-          <span class="profit-row-amount">−${fmt(dm.investorCost)}</span>
-        </div>
-        ${dayAgent > 0 || c.hasAgent ? `
-        <div class="profit-row deduct-agent">
-          <span class="profit-row-label">
-            ${state.lang === 'ta' ? 'முகவர் பங்கு' : 'Agent Share'} (₹${dayAgent}/day)
-          </span>
-          <span class="profit-row-amount">−${fmt(dm.agentPay)}</span>
-        </div>` : ''}
-        <div class="profit-row net">
-          <span class="profit-row-label" style="font-weight:800">
-            ${state.lang === 'ta' ? 'உரிமையாளர் பங்கு' : 'Owner Share'} (₹${currentOwnerRate.toFixed(2)}/day)
-          </span>
-          <span class="profit-row-amount" style="font-weight:800">${fmt(dm.ownerNet)}</span>
-        </div>
-      </div>
-    </div>`;
-  })();
+  })() : '';
 
 
   const interestAccrued = Math.round(getAccruedInterest(c));
@@ -2445,48 +2397,6 @@ function renderDetailPanel() {
       </div>
     `;
 
-    const paidDatesSet2 = new Set(c.dailyPaidDates || []);
-    const rate2 = Number(c.dailyRate) || 0;
-    const sortedDates = [...activeDates].reverse();
-    let gridRows = '';
-    
-    if (typeof paidDatesSet2 !== 'undefined' && paidDatesSet2) {
-      gridRows = sortedDates.map(d => {
-        const isPaid = paidDatesSet2.has(d);
-        const activeP = getActivePrincipalForDate(c, d);
-        const dayInterest = rate2;
-        
-        return `
-          <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.05)">
-            <div style="display:flex;flex-direction:column;gap:2px">
-              <span style="font-size:12px;font-weight:600;color:var(--text-primary)">${fmtDate(d)}</span>
-              <span style="font-size:10px;color:var(--text-muted)">
-                ${langIsTA ? 'அசல்: ' : 'Principal: '}${fmt(activeP)}
-              </span>
-            </div>
-            <div style="display:flex;align-items:center;gap:12px">
-              <span style="font-size:12px;font-weight:700;color:var(--emerald-400)">${fmt(dayInterest)}</span>
-              <input type="checkbox" ${isPaid ? 'checked' : ''} onclick="toggleDailyDatePaid('${c.id}', '${d}')" style="cursor:pointer;width:16px;height:16px;accent-color:var(--primary-color)" />
-            </div>
-          </div>
-        `;
-      }).join('');
-    }
-    
-    const dailyGridHtml = `
-      <div class="detail-section ledger-card" style="background:rgba(255,255,255,0.02);border:1px solid var(--border-card);border-radius:12px;padding:12px;margin-top:14px">
-        <div class="detail-section-title" style="margin-bottom:8px;display:flex;justify-content:space-between;align-items:center">
-          <span>${langIsTA ? 'தினசரி கண்காணிப்பு கட்டம்' : 'Daily Interest Tracking Grid'}</span>
-          <span style="font-size:11px;color:var(--text-muted)">
-            ${(typeof paidDatesSet2 !== 'undefined' && paidDatesSet2) ? paidDatesSet2.size : 0} / ${activeDates.length} ${langIsTA ? 'நாட்கள் செலுத்தப்பட்டது' : 'days paid'}
-          </span>
-        </div>
-        <div style="max-height:200px;overflow-y:auto;padding-right:4px">
-          ${gridRows.length ? gridRows : `<div style="text-align:center;padding:12px;font-size:11px;color:var(--text-muted)">${langIsTA ? 'நாட்கள் எதுவும் இல்லை' : 'No active days yet'}</div>`}
-        </div>
-      </div>
-    `;
-
     const historyRows = (c.payments || []).map(pay => {
       const typeLabel = pay.type === 'principal' ? (langIsTA ? 'அசல்' : 'Principal') : (langIsTA ? 'வட்டி' : 'Interest');
       const typeColor = pay.type === 'principal' ? 'var(--blue-400)' : 'var(--emerald-400)';
@@ -2517,7 +2427,6 @@ function renderDetailPanel() {
       ${todayInterestHtml}
       ${recordPaymentFormHtml}
       ${breakdownSectionHtml}
-      ${dailyGridHtml}
       ${historySectionHtml}
     `;
   }
@@ -2596,31 +2505,6 @@ function renderDetailPanel() {
 
       ${paymentLedgerHtml}
 
-      <!-- Date Range Calculator -->
-      <div class="date-range-calc">
-        <div class="date-range-title">${t('interest_calculator')}</div>
-        <div class="date-range-inputs">
-          <div class="form-group">
-            <label class="form-label">${t('from_date')}</label>
-            <input type="date" class="form-input" id="drFrom" onchange="calcDateRange('${c.id}')" value="${c.startDate || ''}">
-          </div>
-          <div class="form-group">
-            <label class="form-label">${t('to_date')}</label>
-            <input type="date" class="form-input" id="drTo" onchange="calcDateRange('${c.id}')"
-              value="${c.endDate || getLocalToday()}">
-          </div>
-        </div>
-        <div id="dateRangeResult">
-          <div class="date-range-result">
-            <div>
-              <div class="result-label">${t('total_accrued_interest')}</div>
-              <div class="result-breakdown" id="drBreakdown">${t('calc_select_dates')}</div>
-            </div>
-            <div class="result-amount" id="drAmount">₹—</div>
-          </div>
-        </div>
-      </div>
-
       <!-- Actions -->
       <div class="divider"></div>
       <div style="display:flex;gap:10px;flex-wrap:wrap">
@@ -2640,9 +2524,6 @@ function renderDetailPanel() {
       </div>
     </div>
   `;
-
-  // Trigger initial date range calculation
-  calcDateRange(c.id);
 }
 
 function downloadLoanSummaryPDF(customerId) {
