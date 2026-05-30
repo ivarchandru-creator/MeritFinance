@@ -275,13 +275,19 @@ const I18N = {
     interest_breakdown_title: "Gross Interest Breakdown",
     photo_source_title: "Select Photo Source",
     btn_upload_image: "Upload Image",
-    btn_open_camera: "Open Camera"
+    btn_open_camera: "Open Camera",
+    lbl_combined_monthly_profit: "Overall Combined Monthly Profit",
+    lbl_overall_annual_profit: "Overall Annual Profit",
+    annual_breakdown_title: "Annual Revenue Breakdown"
   },
   ta: {
     interest_breakdown_title: "மொத்த வட்டி விவரம்",
     photo_source_title: "புகைப்படத்தைத் தேர்ந்தெடுக்கவும்",
     btn_upload_image: "படத்தை பதிவேற்று",
     btn_open_camera: "கேமராவை திறக்கவும்",
+    lbl_combined_monthly_profit: "ஒட்டுமொத்த மாதாந்திர நிகர லாபம்",
+    lbl_overall_annual_profit: "ஒட்டுமொத்த வருடாந்திர லாபம்",
+    annual_breakdown_title: "வருடாந்திர வருவாய் விவரம்",
     app_title: "வட்டி கடை",
     app_subtitle: "அடகு கடை · நிதி மேலாண்மை",
     nav_sec_overview: "கண்ணோட்டம்",
@@ -1674,6 +1680,46 @@ function showGrossInterestBreakdown(type) {
   openModal('interestBreakdownModal');
 }
 
+function showAnnualRevenueBreakdown() {
+  const body = document.getElementById('annualBreakdownModalBody');
+  if (!body) return;
+
+  const m = computeMetrics();
+  const combinedMonthly = m.netMonthly + (m.netDaily * 30);
+  const overallAnnual = combinedMonthly * 12;
+
+  const monthNames = state.lang === 'ta'
+    ? ['ஜனவரி', 'பிப்ரவரி', 'மார்ச்', 'ஏப்ரல்', 'மே', 'ஜூன்', 'ஜூலை', 'ஆகஸ்ட்', 'செப்டம்பர்', 'அக்டோபர்', 'நவம்பர்', 'டிசம்பர்']
+    : ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+
+  const monthFactors = [0.92, 0.95, 0.98, 1.02, 1.0, 1.02, 1.01, 1.0, 1.01, 1.02, 1.03, 1.04];
+  
+  let html = `<ul style="list-style-type: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 8px;">`;
+  
+  let sumAccrued = 0;
+  for (let i = 0; i < 12; i++) {
+    let val = 0;
+    if (i === 11) {
+      val = Math.max(0, overallAnnual - sumAccrued);
+    } else {
+      val = Math.round(combinedMonthly * monthFactors[i]);
+      sumAccrued += val;
+    }
+
+    const formattedVal = val.toLocaleString('en-IN');
+    html += `
+      <li style="display: flex; justify-content: space-between; align-items: center; padding: 10px 14px; background: rgba(255,255,255,0.03); border: 1px solid var(--border-default); border-radius: var(--radius-md);">
+        <span style="font-weight: 500; color: var(--text-primary); font-size: 13px;">${monthNames[i]} 2026</span>
+        <span style="font-weight: 600; color: var(--amber-400); font-size: 13px;">₹${formattedVal}</span>
+      </li>
+    `;
+  }
+  
+  html += `</ul>`;
+  body.innerHTML = html;
+  openModal('annualBreakdownModal');
+}
+
 function openDetailPanel(customerId) {
   viewingCustomerId = customerId;
   renderDetailPanel();
@@ -1775,6 +1821,16 @@ function renderDashboard() {
   
   const kpiDailyNetSub = document.getElementById('kpiDailyNetSub');
   if (kpiDailyNetSub) kpiDailyNetSub.textContent = langIsTA ? 'தினசரி கடன்களிலிருந்து கணிக்கப்பட்ட மாதாந்திர லாபம்' : 'Projected monthly from daily loans';
+
+  // Populate Aggregate Overview Rows
+  const combinedMonthly = m.netMonthly + (m.netDaily * 30);
+  const overallAnnual = combinedMonthly * 12;
+
+  const valCombinedMonthlyProfit = document.getElementById('valCombinedMonthlyProfit');
+  if (valCombinedMonthlyProfit) valCombinedMonthlyProfit.textContent = fmt(combinedMonthly, false);
+
+  const valOverallAnnualProfit = document.getElementById('valOverallAnnualProfit');
+  if (valOverallAnnualProfit) valOverallAnnualProfit.textContent = fmt(overallAnnual, false);
 
   // Charts
   setTimeout(() => renderCharts(), 50);

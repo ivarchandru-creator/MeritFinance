@@ -2652,3 +2652,9 @@ body.light-mode .auth-screen {
 #photoModalImg:hover {
   transform: scale(1.02);
 }
+
+.aggregate-row.interactive:hover {
+  transform: translateY(-2px);
+  border-color: var(--border-hover) !important;
+  box-shadow: var(--shadow-glow);
+}

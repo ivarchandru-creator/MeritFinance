@@ -267,6 +267,20 @@
             </div>
           </div>
         </div>
+
+        <!-- Aggregate Financial Overview Rows -->
+        <div class="aggregate-layout" style="margin-top:16px;display:flex;flex-direction:column;gap:8px">
+          <!-- Row 1: Overall Combined Monthly Profit -->
+          <div class="aggregate-row" id="aggCombinedMonthlyRow" style="display:flex;align-items:center;justify-content:space-between;padding:10px 16px;background:var(--bg-card);border:1px solid var(--border-card);border-radius:var(--radius-lg);transition:all var(--duration-base)">
+            <div style="font-size:13px;font-weight:700;color:var(--text-primary);letter-spacing:0.3px" data-i18n="lbl_combined_monthly_profit">Overall Combined Monthly Profit</div>
+            <div id="valCombinedMonthlyProfit" style="font-size:16px;font-weight:800;color:var(--emerald-400)">₹0</div>
+          </div>
+          <!-- Row 2: Overall Annual Profit -->
+          <div class="aggregate-row interactive" id="aggAnnualProfitRow" onclick="showAnnualRevenueBreakdown()" style="display:flex;align-items:center;justify-content:space-between;padding:10px 16px;background:var(--bg-card);border:1px solid var(--border-card);border-radius:var(--radius-lg);cursor:pointer;transition:all var(--duration-base)">
+            <div style="font-size:13px;font-weight:700;color:var(--text-primary);letter-spacing:0.3px" data-i18n="lbl_overall_annual_profit">Overall Annual Profit</div>
+            <div id="valOverallAnnualProfit" style="font-size:16px;font-weight:800;color:var(--amber-400)">₹0</div>
+          </div>
+        </div>
         
       </section>
 
@@ -873,6 +887,19 @@
         <svg class="ui-icon" style="width: 18px; height: 18px;" viewBox="0 0 24 24"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
         <span data-i18n="btn_open_camera">Open Camera</span>
       </button>
+    </div>
+  </div>
+</div>
+
+<!-- ════ Annual Revenue Breakdown Modal ══════════════════════ -->
+<div class="modal-overlay" id="annualBreakdownModal" role="dialog" aria-modal="true" aria-labelledby="annualBreakdownModalTitle">
+  <div class="modal" style="max-width: 450px;">
+    <div class="modal-header">
+      <h3 class="modal-title" id="annualBreakdownModalTitle" data-i18n="annual_breakdown_title">Annual Revenue Breakdown</h3>
+      <button class="modal-close" onclick="closeModal('annualBreakdownModal')" aria-label="Close modal">✕</button>
+    </div>
+    <div class="modal-body" id="annualBreakdownModalBody" style="max-height: 60vh; overflow-y: auto;">
+      <!-- Month list elements will be generated here -->
     </div>
   </div>
 </div>
