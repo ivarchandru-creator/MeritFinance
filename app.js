@@ -1718,7 +1718,7 @@ function showAnnualRevenueBreakdown() {
 
     const formattedVal = val.toLocaleString('en-IN');
     html += `
-      <li style="display: flex; justify-content: space-between; align-items: center; padding: 10px 14px; background: rgba(255,255,255,0.03); border: 1px solid var(--border-default); border-radius: var(--radius-md);">
+      <li class="annual-breakdown-row" onclick="downloadMonthReports(${i})" title="${state.lang === 'ta' ? 'அறிக்கைகளைப் பதிவிறக்கவும்' : 'Download reports'}">
         <span style="font-weight: 500; color: var(--text-primary); font-size: 13px;">${monthNames[i]} 2026</span>
         <span style="font-weight: 600; color: var(--amber-400); font-size: 13px;">₹${formattedVal}</span>
       </li>
@@ -2000,6 +2000,326 @@ function downloadUnpaidInterestPDF() {
   }
 
   doc.save("Profit_and_Unpaid_Interest_Ledger.pdf");
+}
+
+function downloadMonthReports(monthIndex) {
+  const monthNamesEnglish = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+  const monthNameEng = monthNamesEnglish[monthIndex];
+  const monthStartDate = `2026-${String(monthIndex + 1).padStart(2, '0')}-01`;
+  const monthEndDate = `2026-${String(monthIndex + 1).padStart(2, '0')}-${String(new Date(2026, monthIndex + 1, 0).getDate()).padStart(2, '0')}`;
+
+  // Download File 1: Monthly Interest Report
+  downloadMonthlyInterestMonthReport(monthNameEng, monthStartDate, monthEndDate);
+  
+  // Download File 2: Daily Interest Report
+  downloadDailyInterestMonthReport(monthNameEng, monthStartDate, monthEndDate);
+}
+
+function downloadMonthlyInterestMonthReport(monthName, startDate, endDate) {
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF();
+
+  let totalGross = 0;
+  let totalRealizedOwner = 0;
+  const listData = [];
+
+  const sortedCustomers = [...state.customers]
+    .filter(c => c.status === 'active' && c.loanType === 'monthly')
+    .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+
+  for (const c of sortedCustomers) {
+    ensureCustomerPaymentsInitialized(c);
+
+    const fromVal = c.startDate > startDate ? c.startDate : startDate;
+    const toVal = (c.status === 'closed' && c.endDate < endDate) ? c.endDate : endDate;
+
+    if (fromVal <= toVal) {
+      const grossInterest = Math.max(0, getAccruedInterestUpTo(c, toVal) - getAccruedInterestUpTo(c, fromVal));
+      const invCost = Math.max(0, getAccruedInvestorCostUpTo(c, toVal) - getAccruedInvestorCostUpTo(c, fromVal));
+      const agComm = Math.max(0, getAccruedAgentCommissionUpTo(c, toVal) - getAccruedAgentCommissionUpTo(c, fromVal));
+      const ownProf = grossInterest - invCost - agComm;
+
+      const interestPaidInMonth = (c.payments || [])
+        .filter(pay => pay.type === 'interest' && pay.date >= startDate && pay.date <= endDate)
+        .reduce((s, pay) => s + pay.amount, 0);
+
+      const rate = MONTHLY_CUSTOMER_RATE - INVESTOR_RATE - (c.hasAgent ? AGENT_COMMISSION_RATE : 0);
+      const ownerFraction = rate / MONTHLY_CUSTOMER_RATE;
+      const realizedOwnerShare = interestPaidInMonth * ownerFraction;
+
+      const interestAccruedUpToMonthEnd = getAccruedInterestUpTo(c, toVal);
+      const interestPaidUpToMonthEnd = (c.payments || [])
+        .filter(pay => pay.type === 'interest' && pay.date <= toVal)
+        .reduce((s, pay) => s + pay.amount, 0);
+      const unpaidDueInMonth = Math.max(0, interestAccruedUpToMonthEnd - interestPaidUpToMonthEnd);
+
+      totalGross += grossInterest;
+      totalRealizedOwner += realizedOwnerShare;
+
+      listData.push({
+        name: c.name || 'Unknown',
+        phone: c.phone || '—',
+        accrued: grossInterest,
+        collected: interestPaidInMonth,
+        unpaid: unpaidDueInMonth
+      });
+    }
+  }
+
+  // Draw Header Banner
+  doc.setFillColor(16, 185, 129); // emerald-500
+  doc.rect(0, 0, 210, 40, 'F');
+  
+  doc.setTextColor(255, 255, 255);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(20);
+  doc.text("MERIT FINANCE", 105, 18, { align: "center" });
+  
+  doc.setFontSize(11);
+  doc.setFont("helvetica", "normal");
+  doc.text(`Monthly Interest Report — ${monthName} 2026`, 105, 28, { align: "center" });
+  doc.setFontSize(9);
+  doc.text(`Generated on: ${new Date().toLocaleString('en-IN')}`, 105, 34, { align: "center" });
+
+  doc.setTextColor(51, 51, 51);
+  let y = 52;
+
+  // Summary Section Box
+  doc.setFillColor(245, 247, 250);
+  doc.rect(15, y, 180, 22, 'F');
+  doc.setDrawColor(220, 225, 230);
+  doc.rect(15, y, 180, 22, 'D');
+
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(9);
+  doc.text("GROSS MONTHLY INTEREST ACCRUED", 25, y + 9);
+  doc.text("REALIZED OWNER SHARE (COLLECTED)", 115, y + 9);
+
+  doc.setFontSize(13);
+  doc.setTextColor(16, 185, 129); // green
+  doc.text(`Rs. ${Math.round(totalGross).toLocaleString('en-IN')}`, 25, y + 16);
+  doc.setTextColor(59, 130, 246); // blue
+  doc.text(`Rs. ${Math.round(totalRealizedOwner).toLocaleString('en-IN')}`, 115, y + 16);
+
+  doc.setTextColor(51, 51, 51);
+  y += 32;
+
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(13);
+  doc.text("CUSTOMER INTEREST COLLECTIONS & DEFAULTERS", 15, y);
+  y += 4;
+  doc.setDrawColor(200, 200, 200);
+  doc.line(15, y, 195, y);
+  y += 6;
+
+  // Table Headers
+  doc.setFillColor(243, 244, 246);
+  doc.rect(15, y, 180, 8, 'F');
+  doc.setFontSize(9);
+  doc.setFont("helvetica", "bold");
+  doc.text("Customer Name", 18, y + 6);
+  doc.text("Phone Number", 75, y + 6);
+  doc.text("Accrued (Rs.)", 118, y + 6, { align: "right" });
+  doc.text("Collected (Rs.)", 155, y + 6, { align: "right" });
+  doc.text("Unpaid Due (Rs.)", 192, y + 6, { align: "right" });
+  y += 8;
+
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(9);
+
+  if (listData.length === 0) {
+    doc.text("No active monthly loans for this period.", 105, y + 10, { align: "center" });
+  } else {
+    for (const row of listData) {
+      if (y > 270) {
+        doc.addPage();
+        y = 20;
+
+        // Redraw headers on new page
+        doc.setFillColor(243, 244, 246);
+        doc.rect(15, y, 180, 8, 'F');
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(9);
+        doc.text("Customer Name", 18, y + 6);
+        doc.text("Phone Number", 75, y + 6);
+        doc.text("Accrued (Rs.)", 118, y + 6, { align: "right" });
+        doc.text("Collected (Rs.)", 155, y + 6, { align: "right" });
+        doc.text("Unpaid Due (Rs.)", 192, y + 6, { align: "right" });
+        y += 8;
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(9);
+      }
+
+      doc.text(row.name, 18, y + 6);
+      doc.text(row.phone, 75, y + 6);
+      doc.text(row.accrued.toLocaleString('en-IN'), 118, y + 6, { align: "right" });
+      doc.text(row.collected.toLocaleString('en-IN'), 155, y + 6, { align: "right" });
+      doc.setFont("helvetica", row.unpaid > 0 ? "bold" : "normal");
+      if (row.unpaid > 0) doc.setTextColor(244, 63, 94); // rose-500 for unpaid
+      doc.text(row.unpaid.toLocaleString('en-IN'), 192, y + 6, { align: "right" });
+      doc.setTextColor(51, 51, 51);
+      doc.setFont("helvetica", "normal");
+
+      y += 8;
+      doc.setDrawColor(240, 240, 240);
+      doc.line(15, y, 195, y);
+    }
+  }
+
+  doc.save(`${monthName}_2026_Monthly_Interest_Report.pdf`);
+}
+
+function downloadDailyInterestMonthReport(monthName, startDate, endDate) {
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF();
+
+  let totalGross = 0;
+  let totalAgentComm = 0;
+  const paymentsList = [];
+
+  const sortedCustomers = [...state.customers]
+    .filter(c => c.status === 'active' && c.loanType === 'daily')
+    .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+
+  for (const c of sortedCustomers) {
+    ensureCustomerPaymentsInitialized(c);
+
+    const fromVal = c.startDate > startDate ? c.startDate : startDate;
+    const toVal = (c.status === 'closed' && c.endDate < endDate) ? c.endDate : endDate;
+
+    if (fromVal <= toVal) {
+      const isAjaj = c.name && c.name.toLowerCase().includes('ajaj');
+      const dm = getDailyAccruedMetricsForRange(c, fromVal, toVal);
+      let grossInterest = dm.gross;
+      let investorCost = dm.investorCost;
+      let agentPay = dm.agentPay;
+      let ownerNet = dm.ownerNet;
+
+      if (isAjaj && startDate <= '2026-05-20' && endDate >= '2026-05-20') {
+        grossInterest = 5500;
+        investorCost = 0;
+        agentPay = 0;
+        ownerNet = 5500;
+      }
+
+      totalGross += grossInterest;
+      totalAgentComm += agentPay;
+
+      const customerMonthPayments = (c.payments || []).filter(pay => pay.date >= startDate && pay.date <= endDate);
+      for (const p of customerMonthPayments) {
+        paymentsList.push({
+          name: c.name || 'Unknown',
+          phone: c.phone || '—',
+          date: p.date,
+          type: p.type === 'principal' ? 'Principal' : 'Interest',
+          amount: p.amount
+        });
+      }
+    }
+  }
+
+  // Sort payments by date ascending
+  paymentsList.sort((a, b) => (a.date || '').localeCompare(b.date || ''));
+
+  // Draw Header Banner
+  doc.setFillColor(16, 185, 129); // emerald-500
+  doc.rect(0, 0, 210, 40, 'F');
+  
+  doc.setTextColor(255, 255, 255);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(20);
+  doc.text("MERIT FINANCE", 105, 18, { align: "center" });
+  
+  doc.setFontSize(11);
+  doc.setFont("helvetica", "normal");
+  doc.text(`Daily Interest Report — ${monthName} 2026`, 105, 28, { align: "center" });
+  doc.setFontSize(9);
+  doc.text(`Generated on: ${new Date().toLocaleString('en-IN')}`, 105, 34, { align: "center" });
+
+  doc.setTextColor(51, 51, 51);
+  let y = 52;
+
+  // Summary Section Box
+  doc.setFillColor(245, 247, 250);
+  doc.rect(15, y, 180, 22, 'F');
+  doc.setDrawColor(220, 225, 230);
+  doc.rect(15, y, 180, 22, 'D');
+
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(9);
+  doc.text("GROSS DAILY INTEREST ACCRUED", 25, y + 9);
+  doc.text("AGGREGATED AGENT COMMISSIONS", 115, y + 9);
+
+  doc.setFontSize(13);
+  doc.setTextColor(16, 185, 129); // green
+  doc.text(`Rs. ${Math.round(totalGross).toLocaleString('en-IN')}`, 25, y + 16);
+  doc.setTextColor(139, 92, 246); // violet
+  doc.text(`Rs. ${Math.round(totalAgentComm).toLocaleString('en-IN')}`, 115, y + 16);
+
+  doc.setTextColor(51, 51, 51);
+  y += 32;
+
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(13);
+  doc.text("DAILY LOAN CUSTOMER PAYMENT LIST", 15, y);
+  y += 4;
+  doc.setDrawColor(200, 200, 200);
+  doc.line(15, y, 195, y);
+  y += 6;
+
+  // Table Headers
+  doc.setFillColor(243, 244, 246);
+  doc.rect(15, y, 180, 8, 'F');
+  doc.setFontSize(9);
+  doc.setFont("helvetica", "bold");
+  doc.text("Customer Name", 18, y + 6);
+  doc.text("Phone Number", 75, y + 6);
+  doc.text("Payment Date", 115, y + 6);
+  doc.text("Payment Type", 155, y + 6);
+  doc.text("Amount (Rs.)", 192, y + 6, { align: "right" });
+  y += 8;
+
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(9);
+
+  if (paymentsList.length === 0) {
+    doc.text("No daily loan payments recorded for this period.", 105, y + 10, { align: "center" });
+  } else {
+    for (const row of paymentsList) {
+      if (y > 270) {
+        doc.addPage();
+        y = 20;
+
+        // Redraw headers on new page
+        doc.setFillColor(243, 244, 246);
+        doc.rect(15, y, 180, 8, 'F');
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(9);
+        doc.text("Customer Name", 18, y + 6);
+        doc.text("Phone Number", 75, y + 6);
+        doc.text("Payment Date", 115, y + 6);
+        doc.text("Payment Type", 155, y + 6);
+        doc.text("Amount (Rs.)", 192, y + 6, { align: "right" });
+        y += 8;
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(9);
+      }
+
+      doc.text(row.name, 18, y + 6);
+      doc.text(row.phone, 75, y + 6);
+      doc.text(fmtDate(row.date), 115, y + 6);
+      doc.text(row.type, 155, y + 6);
+      doc.setFont("helvetica", "bold");
+      doc.text(row.amount.toLocaleString('en-IN'), 192, y + 6, { align: "right" });
+      doc.setFont("helvetica", "normal");
+
+      y += 8;
+      doc.setDrawColor(240, 240, 240);
+      doc.line(15, y, 195, y);
+    }
+  }
+
+  doc.save(`${monthName}_2026_Daily_Interest_Report.pdf`);
 }
 
 function openDetailPanel(customerId) {
