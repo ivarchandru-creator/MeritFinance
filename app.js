@@ -1677,7 +1677,7 @@ function showGrossInterestBreakdown(type) {
       
       const formattedVal = Math.round(val).toLocaleString('en-IN');
       html += `
-        <li style="display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; background: rgba(255,255,255,0.03); border: 1px solid var(--border-default); border-radius: var(--radius-md);">
+        <li class="interest-breakdown-row" onclick="closeModal('interestBreakdownModal'); openDetailPanel('${c.id}');" title="${state.lang === 'ta' ? 'விவரங்களைக் காண்க' : 'View customer details'}">
           <span style="font-weight: 500; color: var(--text-primary);">${c.name || 'Unknown'}</span>
           <span style="font-weight: 600; color: var(--emerald-400);">Rs. ${formattedVal}</span>
         </li>
