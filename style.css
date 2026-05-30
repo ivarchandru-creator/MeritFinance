@@ -2992,7 +2992,7 @@ body.light-mode .fintech-card.card-total-outstanding {
     border-left: none !important;
   }
   .detail-panel-body {
-    padding: 12px 14px !important;
+    padding: 12px 14px 120px !important; /* Spacing to prevent fixed mobile bottom nav overlap */
   }
   .detail-panel-header {
     padding: 14px 14px 10px !important;
