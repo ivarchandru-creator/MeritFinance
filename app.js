@@ -648,6 +648,8 @@ let auth = null;
 let db = null;
 let activeFirestoreUnsubscribe = null;
 let currentUser = null; // Mock or Firebase user object
+let isSettingsLoaded = false;
+let isRollingOver = false;
 
 let state = {
   customers:    [],
@@ -656,7 +658,9 @@ let state = {
   theme:        'light',
   lang:         'en',
   sheetSyncUrl:     '',
-  sheetSyncEnabled: false
+  sheetSyncEnabled: false,
+  monthlyArchives:  [],
+  lastActiveMonth:  ''
 };
 
 let editingCustomerId  = null;
@@ -682,7 +686,7 @@ function loadState() {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) {
       const parsed = JSON.parse(raw);
-      state = { customers: [], investors: [], transactions: [], theme: 'light', lang: 'en', sheetSyncUrl: '', sheetSyncEnabled: false, ...parsed };
+      state = { customers: [], investors: [], transactions: [], theme: 'light', lang: 'en', sheetSyncUrl: '', sheetSyncEnabled: false, monthlyArchives: [], lastActiveMonth: '', ...parsed };
     }
     
     // Restore local-only sync settings
@@ -972,10 +976,44 @@ function toggleCurrentMonthInterestPaid(customerId) {
   const c = state.customers.find(x => x.id === customerId);
   if (!c) return;
   const idx = state.customers.findIndex(x => x.id === customerId);
+  const isPaid = !c.currentMonthInterestPaid;
+  
+  ensureCustomerPaymentsInitialized(c);
+  let updatedPayments = [...(c.payments || [])];
+  
+  const currentMonthIdx = getCurrentMonthIndex(c);
+  const activeP = getActivePrincipalForMonth(c, currentMonthIdx);
+  const rate = (activeP * MONTHLY_CUSTOMER_RATE) / 100;
+  const todayStr = getLocalToday();
+  const monthPrefix = todayStr.slice(0, 7); // e.g. "2026-05"
+  
+  if (isPaid) {
+    // Add payment to c.payments
+    updatedPayments.push({
+      id: 'pay_int_' + Math.random().toString(36).substr(2, 9),
+      date: todayStr,
+      amount: rate,
+      type: 'interest'
+    });
+  } else {
+    // Remove interest payments for this month
+    const payIdx = updatedPayments.findIndex(p => p.type === 'interest' && p.date.startsWith(monthPrefix));
+    if (payIdx > -1) {
+      updatedPayments.splice(payIdx, 1);
+    }
+  }
+  
+  const paidInterest = updatedPayments.filter(p => p.type === 'interest').reduce((s, p) => s + p.amount, 0);
+  const paidPrincipal = updatedPayments.filter(p => p.type === 'principal').reduce((s, p) => s + p.amount, 0);
+  
   state.customers[idx] = {
     ...c,
-    currentMonthInterestPaid: !c.currentMonthInterestPaid
+    currentMonthInterestPaid: isPaid,
+    payments: updatedPayments,
+    paidInterest,
+    paidPrincipal
   };
+  
   dbSaveCustomer(state.customers[idx]);
   renderCustomerList();
   renderDetailPanel();
@@ -1181,6 +1219,385 @@ function getDailyLoanMetrics(c, days) {
   return { gross, investorCost: investorCostVal, agentPay: agentPayVal, ownerNet: ownerNetVal };
 }
 
+function getDailyRates(c) {
+  if (!c) return { rate: 0, invPayout: 0, agentPayout: 0, ownerDailyRate: 0 };
+  const isAjaj = c.name && c.name.toLowerCase().includes('ajaj');
+  const rate = isAjaj ? 500 : (Number(c.dailyRate) || 0);
+  const invPayout = isAjaj ? 0 : (c.dailyMethod === 'custom' ? (Number(c.dailyInvestorPayout) || 0) : (Number(c.investorSplitPercent) || 0));
+  const agentPayout = c.hasAgent ? (isAjaj ? 0 : (c.dailyMethod === 'custom' ? (Number(c.dailyAgentPayout) || 0) : (Number(c.agentSplitPercent) || 0))) : 0;
+  const ownerDailyRate = Math.max(0, rate - invPayout - agentPayout);
+  return { rate, invPayout, agentPayout, ownerDailyRate };
+}
+
+function getRealizedProfitForMonth(monthStr) {
+  const paymentHistoryArray = [];
+  for (const c of state.customers) {
+    const isAjaj = c.name && c.name.toLowerCase().includes('ajaj');
+    const { rate: dRate, invPayout: dInv, agentPayout: dAgent } = getDailyRates(c);
+    
+    const payments = c.payments || [];
+    for (const p of payments) {
+      if (p.type !== 'interest') continue;
+      
+      let ownerShare = 0;
+      const amt = Number(p.amount) || 0;
+      if (c.loanType === 'monthly') {
+        const gross = amt;
+        const inv = amt * (2 / 3);
+        const agent = c.hasAgent ? amt * (0.5 / 3) : 0;
+        ownerShare = Math.max(0, gross - inv - agent);
+      } else {
+        if (isAjaj) {
+          ownerShare = amt;
+        } else if (dRate > 0) {
+          const daysFactor = amt / dRate;
+          const inv = dInv * daysFactor;
+          const agent = dAgent * daysFactor;
+          ownerShare = Math.max(0, amt - inv - agent);
+        } else {
+          ownerShare = amt;
+        }
+      }
+      
+      paymentHistoryArray.push({
+        id: p.id,
+        date: p.date,
+        amount: ownerShare,
+        type: 'Interest',
+        status: 'Paid'
+      });
+    }
+  }
+  
+  const totalRealized = paymentHistoryArray
+    .filter(tx => tx.status === 'Paid' && tx.type === 'Interest' && tx.date && tx.date.slice(0, 7) === monthStr)
+    .reduce((sum, tx) => sum + Number(tx.amount), 0);
+    
+  return Math.round(totalRealized);
+}
+
+function getOverallAnnualProfit() {
+  const today = getLocalToday();
+  const currentYear = today.slice(0, 4);
+  const currentMonthNum = parseInt(today.slice(5, 7), 10);
+  const currentMonthIdx = currentMonthNum - 1;
+  
+  const paymentHistoryArray = [];
+  for (const c of state.customers) {
+    const isAjaj = c.name && c.name.toLowerCase().includes('ajaj');
+    const { rate: dRate, invPayout: dInv, agentPayout: dAgent } = getDailyRates(c);
+    
+    const payments = c.payments || [];
+    for (const p of payments) {
+      if (p.type !== 'interest') continue;
+      
+      let ownerShare = 0;
+      const amt = Number(p.amount) || 0;
+      if (c.loanType === 'monthly') {
+        const gross = amt;
+        const inv = amt * (2 / 3);
+        const agent = c.hasAgent ? amt * (0.5 / 3) : 0;
+        ownerShare = Math.max(0, gross - inv - agent);
+      } else {
+        if (isAjaj) {
+          ownerShare = amt;
+        } else if (dRate > 0) {
+          const daysFactor = amt / dRate;
+          const inv = dInv * daysFactor;
+          const agent = dAgent * daysFactor;
+          ownerShare = Math.max(0, amt - inv - agent);
+        } else {
+          ownerShare = amt;
+        }
+      }
+      
+      paymentHistoryArray.push({
+        id: p.id,
+        date: p.date,
+        amount: ownerShare,
+        type: 'Interest',
+        status: 'Paid'
+      });
+    }
+  }
+  
+  let totalAnnual = 0;
+  for (let i = 0; i < 12; i++) {
+    const monthStr = `${currentYear}-${String(i + 1).padStart(2, '0')}`;
+    if (i < currentMonthIdx) {
+      const archived = (state.monthlyArchives || []).find(a => a.month === monthStr);
+      if (archived) {
+        totalAnnual += Number(archived.ownerNetProfit) || 0;
+      }
+    } else if (i === currentMonthIdx) {
+      const totalRealized = paymentHistoryArray
+        .filter(tx => tx.status === 'Paid' && tx.type === 'Interest' && tx.date && tx.date.slice(0, 7) === monthStr)
+        .reduce((sum, tx) => sum + Number(tx.amount), 0);
+      totalAnnual += totalRealized;
+    }
+  }
+  return Math.round(totalAnnual);
+}
+
+function calculateAnnualProjFromCurrent(currentMonthProfit) {
+  const today = getLocalToday();
+  const currentYear = today.slice(0, 4);
+  const currentMonthNum = parseInt(today.slice(5, 7), 10);
+  const currentMonthIdx = currentMonthNum - 1;
+
+  let totalAnnual = 0;
+  for (let i = 0; i < 12; i++) {
+    const monthStr = `${currentYear}-${String(i + 1).padStart(2, '0')}`;
+    if (i < currentMonthIdx) {
+      const archived = (state.monthlyArchives || []).find(a => a.month === monthStr);
+      if (archived) {
+        totalAnnual += Number(archived.ownerNetProfit) || 0;
+      } else {
+        totalAnnual += getRealizedProfitForMonth(monthStr);
+      }
+    } else if (i === currentMonthIdx) {
+      totalAnnual += currentMonthProfit;
+    }
+  }
+  return totalAnnual;
+}
+
+function dbSaveSettings(fields) {
+  for (const k in fields) {
+    state[k] = fields[k];
+  }
+  saveState();
+  if (isOfflineSandbox || !auth.currentUser) {
+    renderAll();
+  } else {
+    const uid = auth.currentUser.uid;
+    db.collection('users').doc(uid).collection('settings').doc('config').set(fields, { merge: true })
+      .catch(err => {
+        showToast("Failed to save settings: " + err.message, "error");
+      });
+  }
+}
+
+function checkMonthlyRollover() {
+  if (!isSettingsLoaded) return;
+  if (isRollingOver) return;
+  
+  const todayStr = getLocalToday();
+  const currentMonth = todayStr.slice(0, 7);
+  
+  if (!state.lastActiveMonth) {
+    dbSaveSettings({ lastActiveMonth: currentMonth });
+    return;
+  }
+  
+  if (state.lastActiveMonth !== currentMonth) {
+    isRollingOver = true;
+    try {
+      const archiveMonth = state.lastActiveMonth;
+      
+      const monthly  = state.customers.filter(c => c.status === 'active' && c.loanType === 'monthly');
+      const daily    = state.customers.filter(c => c.status === 'active' && c.loanType === 'daily');
+      
+      let grossMonthly    = 0;
+      let investorMonthly = 0;
+      let agentMonthly    = 0;
+      let netMonthly      = 0;
+
+      for (const c of monthly) {
+        if (c.currentMonthInterestPaid) {
+          const currentMonthIdx = getCurrentMonthIndex(c);
+          const activeP = getActivePrincipalForMonth(c, currentMonthIdx);
+          grossMonthly    += (activeP * MONTHLY_CUSTOMER_RATE) / 100;
+          investorMonthly += (activeP * INVESTOR_RATE) / 100;
+          agentMonthly    += c.hasAgent ? (activeP * AGENT_COMMISSION_RATE) / 100 : 0;
+          const rate = MONTHLY_CUSTOMER_RATE - INVESTOR_RATE - (c.hasAgent ? AGENT_COMMISSION_RATE : 0);
+          netMonthly      += (activeP * rate) / 100;
+        }
+      }
+
+      let grossDaily    = 0;
+      let investorDaily = 0;
+      let agentDaily    = 0;
+      let netDaily      = 0;
+
+      for (const c of daily) {
+        const paidDatesInMonth = (c.dailyPaidDates || []).filter(d => d.startsWith(archiveMonth));
+        const paidDaysCount = paidDatesInMonth.length;
+        if (paidDaysCount > 0) {
+          const { rate, invPayout, agentPayout, ownerDailyRate } = getDailyRates(c);
+          grossDaily    += rate * paidDaysCount;
+          investorDaily += invPayout * paidDaysCount;
+          agentDaily    += agentPayout * paidDaysCount;
+          netDaily      += ownerDailyRate * paidDaysCount;
+        }
+      }
+      
+      const ownerNetProfitConcluded = netMonthly + netDaily;
+      
+      const updatedArchives = [...(state.monthlyArchives || [])];
+      const existingIdx = updatedArchives.findIndex(a => a.month === archiveMonth);
+      if (existingIdx > -1) {
+        updatedArchives[existingIdx] = {
+          month: archiveMonth,
+          ownerNetProfit: ownerNetProfitConcluded,
+          grossMonthly,
+          investorMonthly,
+          agentMonthly,
+          netMonthly,
+          grossDaily,
+          investorDaily,
+          agentDaily,
+          netDaily
+        };
+      } else {
+        updatedArchives.push({
+          month: archiveMonth,
+          ownerNetProfit: ownerNetProfitConcluded,
+          grossMonthly,
+          investorMonthly,
+          agentMonthly,
+          netMonthly,
+          grossDaily,
+          investorDaily,
+          agentDaily,
+          netDaily
+        });
+      }
+      
+      const updatedCustomers = state.customers.map(c => {
+        if (c.loanType === 'monthly') {
+          return { ...c, currentMonthInterestPaid: false };
+        }
+        return c;
+      });
+      
+      state.customers = updatedCustomers;
+      
+      if (isOfflineSandbox) {
+        saveState();
+      } else {
+        const batch = db.batch();
+        const uid = auth.currentUser.uid;
+        let batchCount = 0;
+        for (const c of state.customers) {
+          if (c.loanType === 'monthly') {
+            const ref = db.collection('users').doc(uid).collection('customers').doc(c.id);
+            batch.update(ref, { currentMonthInterestPaid: false });
+            batchCount++;
+          }
+        }
+        if (batchCount > 0) {
+          batch.commit().catch(err => {
+            console.error("Batch update for rollover failed: ", err);
+          });
+        }
+      }
+      
+      dbSaveSettings({
+        monthlyArchives: updatedArchives,
+        lastActiveMonth: currentMonth
+      });
+      
+      showToast(`Monthly rollover complete for ${archiveMonth}. Displays reset.`, "success");
+    } catch (e) {
+      console.error("Rollover failed: ", e);
+      showToast("Monthly rollover failed: " + e.message, "error");
+    } finally {
+      isRollingOver = false;
+    }
+  }
+}
+
+function prepopulateMonthlyArchives() {
+  if (state.monthlyArchives && state.monthlyArchives.length > 0) {
+    return;
+  }
+  
+  const archives = {};
+  const currentMonth = getLocalToday().slice(0, 7);
+  
+  for (const c of state.customers) {
+    const isAjaj = c.name && c.name.toLowerCase().includes('ajaj');
+    const { rate: dRate, invPayout: dInv, agentPayout: dAgent, ownerDailyRate: dOwner } = getDailyRates(c);
+    
+    const payments = c.payments || [];
+    for (const p of payments) {
+      if (p.type !== 'interest' || !p.date) continue;
+      
+      const monthStr = p.date.slice(0, 7);
+      if (monthStr >= currentMonth) continue;
+      
+      if (!archives[monthStr]) {
+        archives[monthStr] = {
+          month: monthStr,
+          ownerNetProfit: 0,
+          grossMonthly: 0,
+          investorMonthly: 0,
+          agentMonthly: 0,
+          netMonthly: 0,
+          grossDaily: 0,
+          investorDaily: 0,
+          agentDaily: 0,
+          netDaily: 0
+        };
+      }
+      
+      const amt = Number(p.amount) || 0;
+      if (c.loanType === 'monthly') {
+        const gross = amt;
+        const inv = amt * (2 / 3);
+        const agent = c.hasAgent ? amt * (0.5 / 3) : 0;
+        const net = Math.max(0, gross - inv - agent);
+        
+        archives[monthStr].grossMonthly += gross;
+        archives[monthStr].investorMonthly += inv;
+        archives[monthStr].agentMonthly += agent;
+        archives[monthStr].netMonthly += net;
+        archives[monthStr].ownerNetProfit += net;
+      } else {
+        let gross = amt;
+        let inv = 0;
+        let agent = 0;
+        let net = amt;
+        
+        if (isAjaj) {
+          inv = 0;
+          agent = 0;
+          net = amt;
+        } else if (dRate > 0) {
+          const daysFactor = amt / dRate;
+          inv = dInv * daysFactor;
+          agent = dAgent * daysFactor;
+          net = Math.max(0, amt - inv - agent);
+        }
+        
+        archives[monthStr].grossDaily += gross;
+        archives[monthStr].investorDaily += inv;
+        archives[monthStr].agentDaily += agent;
+        archives[monthStr].netDaily += net;
+        archives[monthStr].ownerNetProfit += net;
+      }
+    }
+  }
+  
+  const archiveList = Object.values(archives).map(a => ({
+    ...a,
+    ownerNetProfit: Math.round(a.ownerNetProfit),
+    grossMonthly: Math.round(a.grossMonthly),
+    investorMonthly: Math.round(a.investorMonthly),
+    agentMonthly: Math.round(a.agentMonthly),
+    netMonthly: Math.round(a.netMonthly),
+    grossDaily: Math.round(a.grossDaily),
+    investorDaily: Math.round(a.investorDaily),
+    agentDaily: Math.round(a.agentDaily),
+    netDaily: Math.round(a.netDaily)
+  })).sort((a, b) => a.month.localeCompare(b.month));
+  
+  if (archiveList.length > 0) {
+    dbSaveSettings({ monthlyArchives: archiveList });
+  }
+}
+
 /** Aggregate portfolio metrics */
 function computeMetrics() {
   const activeCustomers = state.customers.filter(c => c.status === 'active');
@@ -1206,25 +1623,23 @@ function computeMetrics() {
     }
   }
 
-  // ── Daily loans analytics (strictly accumulated from paid daily rates) ──
+  // ── Daily loans analytics (strictly accumulated from paid daily rates in current month) ──
   let grossDaily    = 0;
   let investorDaily = 0;
   let agentDaily    = 0;
   let netDaily      = 0;
 
-  for (const c of daily) {
-    const isPaidToday = (c.dailyPaidDates || []).includes(getLocalToday());
-    if (isPaidToday) {
-      const isAjaj = c.name && c.name.toLowerCase().includes('ajaj');
-      const rate = isAjaj ? 500 : (Number(c.dailyRate) || 0);
-      const invPayout = isAjaj ? 0 : (c.dailyMethod === 'custom' ? (Number(c.dailyInvestorPayout) || 0) : (Number(c.investorSplitPercent) || 0));
-      const agentPayout = c.hasAgent ? (isAjaj ? 0 : (c.dailyMethod === 'custom' ? (Number(c.dailyAgentPayout) || 0) : (Number(c.agentSplitPercent) || 0))) : 0;
-      const ownerDailyRate = Math.max(0, rate - invPayout - agentPayout);
+  const currentMonthPrefix = getLocalToday().slice(0, 7);
 
-      grossDaily    += rate;
-      investorDaily += invPayout;
-      agentDaily    += agentPayout;
-      netDaily      += ownerDailyRate;
+  for (const c of daily) {
+    const paidDatesInMonth = (c.dailyPaidDates || []).filter(d => d.startsWith(currentMonthPrefix));
+    const paidDaysCount = paidDatesInMonth.length;
+    if (paidDaysCount > 0) {
+      const { rate, invPayout, agentPayout, ownerDailyRate } = getDailyRates(c);
+      grossDaily    += rate * paidDaysCount;
+      investorDaily += invPayout * paidDaysCount;
+      agentDaily    += agentPayout * paidDaysCount;
+      netDaily      += ownerDailyRate * paidDaysCount;
     }
   }
 
@@ -1242,7 +1657,7 @@ function computeMetrics() {
   const totalInvestor = investorMonthly + investorDaily;   // ← loan-derived, not ledger-derived
   const totalAgent    = agentMonthly   + agentDaily;
   const ownerNet      = netMonthly     + netDaily;
-  const annualProj    = ownerNet * 12;
+  const annualProj    = calculateAnnualProjFromCurrent(netMonthly + (netDaily * 30));
 
   return {
     activeCount:       activeCustomers.length,
@@ -1677,21 +2092,24 @@ function showGrossInterestBreakdown(type) {
     for (const c of activeCustomers) {
       let val = 0;
       if (type === 'monthly') {
-        const currentMonthIdx = getCurrentMonthIndex(c);
-        const activeP = getActivePrincipalForMonth(c, currentMonthIdx);
-        val = (activeP * MONTHLY_CUSTOMER_RATE) / 100;
+        if (c.currentMonthInterestPaid) {
+          const currentMonthIdx = getCurrentMonthIndex(c);
+          const activeP = getActivePrincipalForMonth(c, currentMonthIdx);
+          val = (activeP * MONTHLY_CUSTOMER_RATE) / 100;
+        }
       } else {
-        const startD = c.startDate || c.createdAt?.slice(0, 10) || today;
-        const endD = c.status === 'closed' ? (c.endDate || today) : today;
-        const dm = getDailyAccruedMetricsForRange(c, startD, endD);
-        val = dm.gross;
+        const currentMonthPrefix = getLocalToday().slice(0, 7);
+        const paidDatesInMonth = (c.dailyPaidDates || []).filter(d => d.startsWith(currentMonthPrefix));
+        const paidDaysCount = paidDatesInMonth.length;
+        const { rate } = getDailyRates(c);
+        val = rate * paidDaysCount;
       }
       
-      const formattedVal = Math.round(val).toLocaleString('en-IN');
+      const formattedVal = fmt(Math.round(val));
       html += `
         <li class="interest-breakdown-row" onclick="closeModal('interestBreakdownModal'); openDetailPanel('${c.id}');" title="${state.lang === 'ta' ? 'விவரங்களைக் காண்க' : 'View customer details'}">
           <span style="font-weight: 500; color: var(--text-primary);">${c.name || 'Unknown'}</span>
-          <span style="font-weight: 600; color: var(--emerald-400);">Rs. ${formattedVal}</span>
+          <span style="font-weight: 600; color: var(--emerald-400);">${formattedVal}</span>
         </li>
       `;
     }
@@ -1707,36 +2125,62 @@ function showAnnualRevenueBreakdown() {
   if (!body) return;
 
   const m = computeMetrics();
-  const combinedMonthly = m.netMonthly + (m.netDaily * 30);
-  const overallAnnual = combinedMonthly * 12;
+  const today = getLocalToday();
+  const currentYear = today.slice(0, 4);
+  const currentMonthNum = parseInt(today.slice(5, 7), 10);
+  const currentMonthIdx = currentMonthNum - 1;
 
   const monthNames = state.lang === 'ta'
     ? ['ஜனவரி', 'பிப்ரவரி', 'மார்ச்', 'ஏப்ரல்', 'மே', 'ஜூன்', 'ஜூலை', 'ஆகஸ்ட்', 'செப்டம்பர்', 'அக்டோபர்', 'நவம்பர்', 'டிசம்பர்']
     : ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 
-  const monthFactors = [0.92, 0.95, 0.98, 1.02, 1.0, 1.02, 1.01, 1.0, 1.01, 1.02, 1.03, 1.04];
-  
+  const badges = state.lang === 'ta'
+    ? { archived: 'ஆவணப்படுத்தப்பட்டது', live: 'நேரலை' }
+    : { archived: 'Archived', live: 'Live' };
+
   let html = `<ul style="list-style-type: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 8px;">`;
-  
-  let sumAccrued = 0;
+
   for (let i = 0; i < 12; i++) {
+    const monthStr = `${currentYear}-${String(i + 1).padStart(2, '0')}`;
     let val = 0;
-    if (i === 11) {
-      val = Math.max(0, overallAnnual - sumAccrued);
-    } else {
-      val = Math.round(combinedMonthly * monthFactors[i]);
-      sumAccrued += val;
+    let badgeText = '';
+    let badgeClass = '';
+
+    if (i < currentMonthIdx) {
+      const archived = (state.monthlyArchives || []).find(a => a.month === monthStr);
+      if (archived) {
+        val = Number(archived.ownerNetProfit) || 0;
+        badgeText = badges.archived;
+        badgeClass = 'badge-archived';
+      } else {
+        val = getRealizedProfitForMonth(monthStr);
+        if (val > 0) {
+          badgeText = badges.archived;
+          badgeClass = 'badge-archived';
+        }
+      }
+    } else if (i === currentMonthIdx) {
+      val = m.netMonthly + (m.netDaily * 30);
+      badgeText = badges.live;
+      badgeClass = 'badge-live';
     }
 
     const formattedVal = val.toLocaleString('en-IN');
+    const badgeHtml = badgeText 
+      ? `<span class="badge ${badgeClass}" style="font-size: 9px; padding: 2px 8px; border-radius: 4px; font-weight: 600;">${badgeText}</span>`
+      : '';
+
     html += `
       <li class="annual-breakdown-row" onclick="downloadMonthReports(${i})" title="${state.lang === 'ta' ? 'அறிக்கைகளைப் பதிவிறக்கவும்' : 'Download reports'}">
-        <span style="font-weight: 500; color: var(--text-primary); font-size: 13px;">${monthNames[i]} 2026</span>
-        <span style="font-weight: 600; color: var(--amber-400); font-size: 13px;">₹${formattedVal}</span>
+        <span style="font-weight: 500; color: var(--text-primary); font-size: 13px;">${monthNames[i]} ${currentYear}</span>
+        <div style="display: flex; align-items: center; gap: 8px;">
+          ${badgeHtml}
+          <span style="font-weight: 600; color: var(--amber-400); font-size: 13px;">₹${formattedVal}</span>
+        </div>
       </li>
     `;
   }
-  
+
   html += `</ul>`;
   body.innerHTML = html;
   openModal('annualBreakdownModal');
@@ -2446,8 +2890,10 @@ function renderDashboard() {
   if (kpiDailyNetSub) kpiDailyNetSub.textContent = langIsTA ? 'தினசரி கடன்களிலிருந்து கணிக்கப்பட்ட மாதாந்திர லாபம்' : 'Projected monthly from daily loans';
 
   // Populate Aggregate Overview Rows
-  const combinedMonthly = m.netMonthly + (m.netDaily * 30);
-  const overallAnnual = combinedMonthly * 12;
+  const todayStr = getLocalToday();
+  const currentMonthStr = todayStr.slice(0, 7);
+  const combinedMonthly = getRealizedProfitForMonth(currentMonthStr);
+  const overallAnnual = getOverallAnnualProfit();
 
   const valCombinedMonthlyProfit = document.getElementById('valCombinedMonthlyProfit');
   if (valCombinedMonthlyProfit) valCombinedMonthlyProfit.textContent = fmt(combinedMonthly, false);
@@ -4957,6 +5403,10 @@ function renderView(viewId) {
 }
 
 function renderAll() {
+  if (isSettingsLoaded) {
+    checkMonthlyRollover();
+    prepopulateMonthlyArchives();
+  }
   renderView(currentView);
   // Always update dashboard KPIs if visible
   if (currentView !== 'dashboard') {
@@ -5125,6 +5575,7 @@ function onUserAuthenticated(user) {
   
   if (isOfflineSandbox) {
     loadState();
+    isSettingsLoaded = true;
     seedDemoData();
     renderAll();
   } else {
@@ -5150,6 +5601,9 @@ function onUserSignOut() {
   state.customers = [];
   state.investors = [];
   state.transactions = [];
+  state.monthlyArchives = [];
+  state.lastActiveMonth = '';
+  isSettingsLoaded = false;
   
   // Clear forms safely
   const authEmailEl = document.getElementById('authEmail');
@@ -5198,9 +5652,15 @@ function startFirestoreSync(uid) {
         const data = doc.data();
         state.sheetSyncUrl = data.sheetSyncUrl || '';
         state.sheetSyncEnabled = !!data.sheetSyncEnabled;
+        state.monthlyArchives = data.monthlyArchives || [];
+        state.lastActiveMonth = data.lastActiveMonth || '';
       }
+      isSettingsLoaded = true;
+      renderAll();
     }, err => {
       console.error("Firestore settings sync error: ", err);
+      isSettingsLoaded = true;
+      renderAll();
     });
 
   activeFirestoreUnsubscribe = () => {
