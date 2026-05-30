@@ -2982,3 +2982,140 @@ body.light-mode .fintech-card.card-total-outstanding {
   padding: 16px !important;
 }
 
+/* ============================================================
+   MOBILE RESPONSIVE OVERRIDES (VIEWPORT < 768PX)
+   ============================================================ */
+@media (max-width: 768px) {
+  /* Compact Mobile-First Layout (No Vertical Clutter) */
+  .detail-panel {
+    width: 100% !important;
+    border-left: none !important;
+  }
+  .detail-panel-body {
+    padding: 12px 14px !important;
+  }
+  .detail-panel-header {
+    padding: 14px 14px 10px !important;
+  }
+  .detail-section {
+    margin-bottom: 12px !important;
+  }
+  .divider {
+    margin: 10px 0 !important;
+  }
+  .stats-strip {
+    padding: 10px 12px !important;
+    margin-bottom: 12px !important;
+    border-radius: 12px !important;
+    gap: 8px !important;
+  }
+  .stat-item .stat-val {
+    font-size: 16px !important;
+  }
+  .stat-item .stat-key {
+    font-size: 8px !important;
+    letter-spacing: 0.5px !important;
+  }
+  .ledger-card {
+    padding: 12px !important;
+    margin-top: 10px !important;
+    border-radius: 12px !important;
+  }
+
+  /* 2-Column Mobile Grid for Balance Cards */
+  .fintech-cards-grid {
+    display: grid !important;
+    grid-template-columns: repeat(2, 1fr) !important;
+    gap: 10px !important;
+    margin-top: 10px !important;
+    margin-bottom: 10px !important;
+  }
+  
+  .fintech-card {
+    padding: 12px !important;
+    border-radius: 12px !important; /* sleek 12px rounded corners */
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05) !important; /* soft shadow-sm */
+    border: 1px solid rgba(0, 0, 0, 0.04) !important;
+  }
+  
+  .fintech-card.card-total-outstanding {
+    grid-column: span 2 !important; /* full-width span */
+    margin-top: 0 !important;
+    padding: 14px 12px !important;
+  }
+
+  /* Mobile Touch Targets & Typography Optimization */
+  .fintech-card-value {
+    font-size: 18px !important; /* text-lg/xl range for mobile */
+    font-weight: 800 !important;
+  }
+  
+  .fintech-card-label {
+    font-size: 9px !important;
+    letter-spacing: 0.5px !important;
+    margin-bottom: 4px !important;
+  }
+
+  /* Large, flat thumb-friendly button targets (48px height) */
+  .btn, .detail-panel-body .btn, .ledger-card .btn, .section-header .btn {
+    padding: 12px 20px !important;
+    font-size: 13px !important;
+    height: 48px !important; /* 48px mobile touch height */
+    border-radius: 12px !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    font-weight: 700 !important;
+  }
+  
+  .form-input, .form-select {
+    height: 44px !important; /* Touch friendly input height */
+    font-size: 13px !important;
+    border-radius: 10px !important;
+  }
+
+  /* Dashboard KPI Mobile Optimization */
+  .metrics-layout {
+    height: auto !important; /* Allow layout auto sizing */
+    gap: 8px !important;
+    margin-bottom: 12px !important;
+  }
+  
+  .metrics-section {
+    height: auto !important;
+  }
+  
+  .metrics-cards-container {
+    gap: 8px !important;
+  }
+
+  .kpi-card {
+    padding: 12px 14px !important;
+    border-radius: 12px !important;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05) !important;
+    min-height: 0 !important;
+    gap: 4px !important;
+  }
+  
+  .kpi-value {
+    font-size: 20px !important; /* crisp size */
+    margin: 2px 0 !important;
+  }
+  
+  .kpi-label {
+    font-size: 9px !important;
+    letter-spacing: 0.5px !important;
+  }
+  
+  .kpi-meta {
+    font-size: 9px !important;
+    margin-top: 0 !important;
+  }
+  
+  .kpi-icon {
+    width: 22px !important;
+    height: 22px !important;
+  }
+}
+
+

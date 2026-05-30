@@ -3049,12 +3049,12 @@ function renderDetailPanel() {
             <span class="fintech-card-label">${langIsTA ? 'நிலுவையில் உள்ள வட்டி' : 'PENDING INTEREST'}</span>
             <span class="fintech-card-value" id="valRemainingInterestDue" data-base-value="${remainingI}">${remainingI >= 0 ? '+' : ''}${fmt(remainingI)}</span>
           </div>
-        </div>
 
-        <!-- Total Outstanding Card (Main anchor visual at bottom) -->
-        <div class="fintech-card card-total-outstanding">
-          <span class="fintech-card-label">${langIsTA ? 'நிலுவை தொகை' : 'TOTAL OUTSTANDING'}</span>
-          <span class="fintech-card-value">${fmt(remainingTotal)}</span>
+          <!-- Total Outstanding Card (Full-Width Span) -->
+          <div class="fintech-card card-total-outstanding">
+            <span class="fintech-card-label">${langIsTA ? 'நிலுவை தொகை' : 'TOTAL OUTSTANDING'}</span>
+            <span class="fintech-card-value">${fmt(remainingTotal)}</span>
+          </div>
         </div>
       </div>
     `;
@@ -3177,12 +3177,12 @@ function renderDetailPanel() {
             <span class="fintech-card-label">${langIsTA ? 'நிலுவையில் உள்ள வட்டி' : 'PENDING INTEREST'}</span>
             <span class="fintech-card-value" id="valRemainingInterestDue" data-base-value="${remainingInterestDue}">${remainingInterestDue >= 0 ? '+' : ''}${fmt(remainingInterestDue)}</span>
           </div>
-        </div>
 
-        <!-- Total Outstanding Card (Main anchor visual at bottom) -->
-        <div class="fintech-card card-total-outstanding">
-          <span class="fintech-card-label">${langIsTA ? 'நிலுவை தொகை' : 'TOTAL OUTSTANDING'}</span>
-          <span class="fintech-card-value">${fmt(remainingTotal)}</span>
+          <!-- Total Outstanding Card (Full-Width Span) -->
+          <div class="fintech-card card-total-outstanding">
+            <span class="fintech-card-label">${langIsTA ? 'நிலுவை தொகை' : 'TOTAL OUTSTANDING'}</span>
+            <span class="fintech-card-value">${fmt(remainingTotal)}</span>
+          </div>
         </div>
 
         <!-- Realized Owner Profit Cumulative Tracker -->
