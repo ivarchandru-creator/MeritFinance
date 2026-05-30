@@ -3267,15 +3267,13 @@ function renderCustomerList() {
             <div style="font-size:14px;font-weight:700;color:var(--emerald-400)">${fmt(monthlyInt)}</div>
             <div class="text-xs text-muted">${t('owner_prefix')}${fmt(ownerP)}</div>
           ` : (() => {
-            const today = getLocalToday();
-            const endD = c.status === 'closed' ? (c.endDate || today) : today;
-            const activeDays = daysBetweenInclusive(c.startDate, endD);
-            const ownerShare = Number(c.ownerSplitPercent) || 0;
-            const grossInterest = activeDays * (Number(c.dailyRate) || 0);
-            const ownerProfitVal = activeDays * ownerShare;
+            const dailyRate = Number(c.dailyRate) || 0;
+            const investorShare = c.dailyMethod === 'custom' ? (Number(c.dailyInvestorPayout) || 0) : (Number(c.investorSplitPercent) || 0);
+            const agentShare = c.hasAgent ? (c.dailyMethod === 'custom' ? (Number(c.dailyAgentPayout) || 0) : (Number(c.agentSplitPercent) || 0)) : 0;
+            const ownerShare = Math.max(0, dailyRate - investorShare - agentShare);
             return `
-              <div style="font-size:14px;font-weight:700;color:var(--emerald-400)">${fmt(grossInterest)}</div>
-              <div class="text-xs text-muted">${t('owner_prefix')}${fmt(ownerProfitVal)}</div>
+              <div style="font-size:14px;font-weight:700;color:var(--emerald-400)">${fmt(dailyRate)}/${state.lang === 'ta' ? 'நாள்' : 'day'}</div>
+              <div class="text-xs text-muted">${t('owner_prefix')}${fmt(ownerShare)}</div>
             `;
           })()}
         </td>
@@ -3347,15 +3345,13 @@ function renderCustomerList() {
               <div style="font-size:13px;font-weight:700;color:var(--emerald-400)">${fmt(monthlyInterest(p))}</div>
               <div class="text-xs text-muted">${t('owner_prefix')}${fmt(ownerProfit(c))}</div>
             ` : (() => {
-              const today = getLocalToday();
-              const endD = c.status === 'closed' ? (c.endDate || today) : today;
-              const activeDays = daysBetweenInclusive(c.startDate, endD);
-              const ownerShare = Number(c.ownerSplitPercent) || 0;
-              const grossInterest = activeDays * (Number(c.dailyRate) || 0);
-              const ownerProfitVal = activeDays * ownerShare;
+              const dailyRate = Number(c.dailyRate) || 0;
+              const investorShare = c.dailyMethod === 'custom' ? (Number(c.dailyInvestorPayout) || 0) : (Number(c.investorSplitPercent) || 0);
+              const agentShare = c.hasAgent ? (c.dailyMethod === 'custom' ? (Number(c.dailyAgentPayout) || 0) : (Number(c.agentSplitPercent) || 0)) : 0;
+              const ownerShare = Math.max(0, dailyRate - investorShare - agentShare);
               return `
-                <div style="font-size:13px;font-weight:700;color:var(--emerald-400)">${fmt(grossInterest)}</div>
-                <div class="text-xs text-muted">${t('owner_prefix')}${fmt(ownerProfitVal)}</div>
+                <div style="font-size:13px;font-weight:700;color:var(--emerald-400)">${fmt(dailyRate)}/${state.lang === 'ta' ? 'நாள்' : 'day'}</div>
+                <div class="text-xs text-muted">${t('owner_prefix')}${fmt(ownerShare)}</div>
               `;
             })()}
             ${c.hasAgent ? `<div class="badge badge-agent mt-1" style="font-size:10px"><svg class="ui-icon" style="width:12px;height:12px;margin-right:4px" viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>${escHtml(c.agentName)}</div>` : ''}
