@@ -1130,7 +1130,9 @@ function computeMetrics() {
   let netDaily      = 0;
 
   for (const c of daily) {
-    const dm = getDailyLoanMetricsForPaidDays(c);
+    const startD = c.startDate || c.createdAt?.slice(0, 10) || today;
+    const endD   = c.status === 'closed' ? (c.endDate || today) : today;
+    const dm = getDailyAccruedMetricsForRange(c, startD, endD);
     grossDaily    += dm.gross;
     investorDaily += dm.investorCost;
     agentDaily    += dm.agentPay;
@@ -1928,7 +1930,18 @@ function renderCustomerList() {
             ${c.loanType === 'monthly' ? `
               <div style="font-size:14px;font-weight:700;color:var(--emerald-400)">${fmt(monthlyInt)}</div>
               <div class="text-xs text-muted">${t('owner_prefix')}${fmt(ownerP)}</div>
-            ` : `<span class="text-muted text-sm">${t('custom_rate_label')}</span>`}
+            ` : (() => {
+              const today = new Date().toISOString().slice(0, 10);
+              const endD = c.status === 'closed' ? (c.endDate || today) : today;
+              const activeDays = daysBetweenInclusive(c.startDate, endD);
+              const ownerShare = Number(c.ownerSplitPercent) || 0;
+              const grossInterest = activeDays * (Number(c.dailyRate) || 0);
+              const ownerProfit = activeDays * ownerShare;
+              return `
+                <div style="font-size:14px;font-weight:700;color:var(--emerald-400)">${fmt(grossInterest)}</div>
+                <div class="text-xs text-muted">${t('owner_prefix')}${fmt(ownerProfit)}</div>
+              `;
+            })()}
           </td>
           <td>
             ${c.hasAgent
@@ -2008,9 +2021,18 @@ function renderCustomerList() {
               ${c.loanType === 'monthly' ? `
                 <div style="font-size:13px;font-weight:700;color:var(--emerald-400)">${fmt(monthlyInterest(p))}</div>
                 <div class="text-xs text-muted">${t('owner_prefix')}${fmt(ownerProfit(c))}</div>
-              ` : `
-                <div style="font-size:12px;color:var(--text-muted)">${t('direct_customer')}</div>
-              `}
+              ` : (() => {
+                const today = new Date().toISOString().slice(0, 10);
+                const endD = c.status === 'closed' ? (c.endDate || today) : today;
+                const activeDays = daysBetweenInclusive(c.startDate, endD);
+                const ownerShare = Number(c.ownerSplitPercent) || 0;
+                const grossInterest = activeDays * (Number(c.dailyRate) || 0);
+                const ownerProfit = activeDays * ownerShare;
+                return `
+                  <div style="font-size:13px;font-weight:700;color:var(--emerald-400)">${fmt(grossInterest)}</div>
+                  <div class="text-xs text-muted">${t('owner_prefix')}${fmt(ownerProfit)}</div>
+                `;
+              })()}
               ${c.hasAgent ? `<div class="badge badge-agent mt-1" style="font-size:10px"><svg class="ui-icon" style="width:12px;height:12px;margin-right:4px" viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>${escHtml(c.agentName)}</div>` : ''}
             </div>
           </div>
@@ -2303,14 +2325,8 @@ function renderDetailPanel() {
     const totalAccruedInterest = Math.round(getAccruedInterest(c));
     const interestPaid = Number(c.paidInterest) || 0;
     
-    // Calculate total interest paid strictly before today
-    const interestPayments = (c.payments || []).filter(p => p.type === 'interest');
-    const paidInterestBeforeToday = interestPayments
-      .filter(p => p.date < todayStr)
-      .reduce((s, p) => s + p.amount, 0);
-
-    const totalInterestDue = Math.max(0, totalAccruedInterest - paidInterestBeforeToday);
-    const remainingInterestDue = Math.max(0, totalAccruedInterest - interestPaid);
+    const totalInterestDue = totalAccruedInterest;
+    const remainingInterestDue = Math.max(0, totalInterestDue - interestPaid);
     const remainingTotal = remainingP + remainingInterestDue;
 
     const breakdownSectionHtml = `
@@ -2343,7 +2359,7 @@ function renderDetailPanel() {
           </div>
           <div style="display:flex;justify-content:space-between;border-bottom:1px dashed var(--border-default);padding-bottom:4px;margin-bottom:4px">
             <span style="color:var(--text-secondary)">${langIsTA ? 'மீதமுள்ள வட்டி நிலுவை' : 'Remaining Interest Due'}</span>
-            <span style="font-weight:600;color:var(--rose-400)" id="valRemainingInterestDue">+${fmt(remainingInterestDue)}</span>
+            <span style="font-weight:600;color:var(--rose-400)" id="valRemainingInterestDue" data-base-value="${remainingInterestDue}">+${fmt(remainingInterestDue)}</span>
           </div>
           <div style="display:flex;justify-content:space-between;border-top:1px solid var(--border-default);padding-top:8px;margin-top:4px;font-size:15px;font-weight:800">
             <span style="color:var(--text-primary)">${langIsTA ? 'நிலுவை தொகை' : 'Remaining Balance'}</span>
@@ -3190,16 +3206,15 @@ function updateDynamicRemainingInterest() {
   const type = typeEl.value;
   const amount = parseFloat(amountEl.value) || 0;
   
-  const totalDueEl = document.getElementById('valTotalInterestDue');
   const remainingDueEl = document.getElementById('valRemainingInterestDue');
-  if (!totalDueEl || !remainingDueEl) return;
+  if (!remainingDueEl) return;
   
-  const totalDue = parseFloat(totalDueEl.dataset.value) || 0;
+  const baseRemaining = parseFloat(remainingDueEl.dataset.baseValue) || 0;
   if (type === 'interest') {
-    const remaining = Math.max(0, totalDue - amount);
-    remainingDueEl.textContent = '+' + remaining.toLocaleString('en-IN');
+    const remaining = Math.max(0, baseRemaining - amount);
+    remainingDueEl.textContent = '+' + fmt(remaining);
   } else {
-    remainingDueEl.textContent = '+' + totalDue.toLocaleString('en-IN');
+    remainingDueEl.textContent = '+' + fmt(baseRemaining);
   }
 }
 
