@@ -62,7 +62,7 @@ const I18N = {
     kpi_agent_monthly: "Agent Share (0.5%)",
     kpi_agent_daily: "Agent Share (Custom)",
     kpi_net_monthly: "Owner Net Profit",
-    kpi_net_daily: "Owner Monthly Net Profit",
+    kpi_net_daily: "DAILY INTEREST PORTFOLIO TRACK (தினசரி வட்டி டிராக்)",
     modal_add_loan_title: "Add New Loan",
     label_customer_name: "Customer Name",
     label_phone_number: "Phone Number",
@@ -338,7 +338,7 @@ const I18N = {
     kpi_agent_monthly: "முகவர் பங்கு (0.5%)",
     kpi_agent_daily: "முகவர் பங்கு (தனிப்பயன்)",
     kpi_net_monthly: "மாதாந்திர நிகர லாபம்",
-    kpi_net_daily: "தினசரி கடன்களின் மாதாந்திர லாபம்",
+    kpi_net_daily: "DAILY INTEREST PORTFOLIO TRACK (தினசரி வட்டி டிராக்)",
     modal_add_loan_title: "புதிய கடன் சேர்க்கவும்",
     label_customer_name: "வாடிக்கையாளர் பெயர்",
     label_phone_number: "அலைபேசி எண்",
@@ -2977,7 +2977,20 @@ function renderDashboard() {
   if (kpiDailyAgent) kpiDailyAgent.textContent = fmt(m.agentDaily, true);
   
   const kpiDailyNet = document.getElementById('kpiDailyNet');
-  if (kpiDailyNet) kpiDailyNet.textContent = fmt(m.netDaily, false);
+  if (kpiDailyNet) {
+    let totalDailyPaidInterestInMonth = 0;
+    const currentMonthPrefix = getLocalToday().slice(0, 7);
+    for (const c of state.customers.filter(c => c.status === 'active' && c.loanType === 'daily')) {
+      if (c.payments) {
+        for (const p of c.payments) {
+          if (p.date && p.date.startsWith(currentMonthPrefix) && (p.type === 'interest' || p.type === 'Interest') && (p.status === 'Paid' || !p.status)) {
+            totalDailyPaidInterestInMonth += Number(p.amount) || 0;
+          }
+        }
+      }
+    }
+    kpiDailyNet.textContent = fmt(totalDailyPaidInterestInMonth, false);
+  }
 
   // Update sub-labels dynamically
   const kpiMonthlyGrossSub = document.getElementById('kpiMonthlyGrossSub');
@@ -3002,7 +3015,7 @@ function renderDashboard() {
   if (kpiDailyAgentSub) kpiDailyAgentSub.textContent = langIsTA ? 'முகவர் பரிந்துரை கமிஷன்' : 'Agent referral commission';
   
   const kpiDailyNetSub = document.getElementById('kpiDailyNetSub');
-  if (kpiDailyNetSub) kpiDailyNetSub.textContent = langIsTA ? 'இந்த மாதத்தில் வசூலிக்கப்பட்ட நிகர லாபம்' : 'Actual accumulated net profit this month';
+  if (kpiDailyNetSub) kpiDailyNetSub.textContent = "Real-time collected daily loans for this month";
 
   // Populate Aggregate Overview Rows
   const monthlyCardVal = parseCardValue('kpiMonthlyNet');
