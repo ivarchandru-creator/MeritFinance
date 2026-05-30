@@ -692,9 +692,62 @@ function fmt(amount, compact = false) {
   return '₹' + n.toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
 }
 
+function parseDate(dateStr) {
+  if (!dateStr) return new Date();
+  if (dateStr instanceof Date) return dateStr;
+  const s = String(dateStr).trim();
+  // Standard YYYY-MM-DD
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
+    const parts = s.split('-');
+    return new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
+  }
+  // Standard DD-MM-YYYY or DD/MM/YYYY
+  const parts = s.split(/[-/]/);
+  if (parts.length === 3) {
+    if (parts[2].length === 4) {
+      // DD-MM-YYYY
+      return new Date(Number(parts[2]), Number(parts[1]) - 1, Number(parts[0]));
+    } else if (parts[0].length === 4) {
+      // YYYY-MM-DD or YYYY/MM/DD
+      return new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
+    }
+  }
+  const d = new Date(s);
+  return isNaN(d.getTime()) ? new Date() : d;
+}
+
+function formatLocalDate(d) {
+  if (!d || isNaN(d.getTime())) return '';
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+}
+
+function formatDateForInput(dateStr) {
+  if (!dateStr) return '';
+  const clean = String(dateStr).trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(clean)) return clean;
+  const parts = clean.split(/[-/]/);
+  if (parts.length === 3) {
+    if (parts[2].length === 4) {
+      const day = parts[0].padStart(2, '0');
+      const month = parts[1].padStart(2, '0');
+      const year = parts[2];
+      return `${year}-${month}-${day}`;
+    }
+  }
+  const d = new Date(clean);
+  if (!isNaN(d.getTime())) {
+    return formatLocalDate(d);
+  }
+  return '';
+}
+
+function getLocalToday() {
+  return formatLocalDate(new Date());
+}
+
 function fmtDate(dateStr) {
   if (!dateStr) return '—';
-  const d = new Date(dateStr);
+  const d = parseDate(dateStr);
   return d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
 }
 
@@ -704,15 +757,15 @@ function initials(name) {
 }
 
 function daysBetween(d1, d2) {
-  const a = new Date(d1);
-  const b = new Date(d2);
+  const a = parseDate(d1);
+  const b = parseDate(d2);
   return Math.max(0, Math.round((b - a) / (1000 * 60 * 60 * 24)));
 }
 
 function daysBetweenInclusive(d1, d2) {
   if (!d1 || !d2) return 0;
-  const a = new Date(d1);
-  const b = new Date(d2);
+  const a = parseDate(d1);
+  const b = parseDate(d2);
   if (b < a) return 0;
   return Math.max(0, Math.round((b - a) / (1000 * 60 * 60 * 24))) + 1;
 }
@@ -731,16 +784,16 @@ function getActivePrincipalForDate(c, dateStr) {
 }
 
 function getDailyActiveDates(c) {
-  const today = new Date().toISOString().slice(0, 10);
+  const today = getLocalToday();
   const startD = c.startDate || c.createdAt?.slice(0, 10) || today;
   const endD = c.status === 'closed' ? (c.endDate || today) : today;
   const dates = [];
   if (endD < startD) return dates;
   
-  const start = new Date(startD);
-  const end = new Date(endD);
+  const start = parseDate(startD);
+  const end = parseDate(endD);
   for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
-    dates.push(d.toISOString().slice(0, 10));
+    dates.push(formatLocalDate(d));
   }
   return dates;
 }
@@ -756,11 +809,11 @@ function getDailyAccruedMetricsForRange(c, fromDate, toDate) {
   const rate = Number(c.dailyRate) || 0;
   const method = c.dailyMethod || 'split';
   
-  const start = new Date(fromDate);
-  const end = new Date(toDate);
+  const start = parseDate(fromDate);
+  const end = parseDate(toDate);
   
   for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
-    const ds = d.toISOString().slice(0, 10);
+    const ds = formatLocalDate(d);
     const activeP = getActivePrincipalForDate(c, ds);
     const dayGross = rate;
     
@@ -829,15 +882,15 @@ function daysFromNow(dateStr) {
 }
 
 function addDays(dateStr, days) {
-  const d = new Date(dateStr);
+  const d = parseDate(dateStr);
   d.setDate(d.getDate() + days);
-  return d.toISOString().slice(0, 10);
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
 }
 
 function ensureCustomerPaymentsInitialized(c) {
   if (!c.payments) {
     c.payments = [];
-    const startDate = c.startDate || c.createdAt?.slice(0, 10) || new Date().toISOString().slice(0, 10);
+    const startDate = c.startDate || c.createdAt?.slice(0, 10) || getLocalToday();
     if (Number(c.paidInterest) > 0) {
       c.payments.push({
         id: 'init_int_' + Math.random().toString(36).substr(2, 9),
@@ -862,7 +915,7 @@ function getActivePrincipalForMonth(c, monthIndex) {
   if (c.loanType !== 'monthly') return p;
   if (monthIndex < 1) return p;
   
-  const startDate = c.startDate || c.createdAt?.slice(0, 10) || new Date().toISOString().slice(0, 10);
+  const startDate = c.startDate || c.createdAt?.slice(0, 10) || getLocalToday();
   const daysToMonthStart = (monthIndex - 1) * 30;
   const monthStartStr = addDays(startDate, daysToMonthStart);
   
@@ -879,7 +932,7 @@ function getActivePrincipalForMonth(c, monthIndex) {
 }
 
 function getCurrentMonthIndex(c) {
-  const today = new Date().toISOString().slice(0, 10);
+  const today = getLocalToday();
   const startD = c.startDate || c.createdAt?.slice(0, 10) || today;
   const endD = c.status === 'closed' ? (c.endDate || today) : today;
   const days = Math.max(0, daysBetween(startD, endD));
@@ -1104,7 +1157,7 @@ function computeMetrics() {
   const activeCustomers = state.customers.filter(c => c.status === 'active');
   const monthly  = activeCustomers.filter(c => c.loanType === 'monthly');
   const daily    = activeCustomers.filter(c => c.loanType === 'daily');
-  const today    = new Date().toISOString().slice(0, 10);
+  const today    = getLocalToday();
 
   // ── Monthly loans analytics (UNCHANGED business logic) ──
   let grossMonthly    = 0;
@@ -1782,7 +1835,7 @@ function getAccruedInterestUpTo(c, targetDate) {
     }
     
     // Add current month (if active/open and not marked paid)
-    if (c.status !== 'closed' && targetDate >= new Date().toISOString().slice(0, 10)) {
+    if (c.status !== 'closed' && targetDate >= getLocalToday()) {
       const currentMonthIdx = totalMonths + 1;
       const activeP = getActivePrincipalForMonth(c, currentMonthIdx);
       const isPaid = !!c.currentMonthInterestPaid;
@@ -1809,7 +1862,7 @@ function getAccruedInvestorCostUpTo(c, targetDate) {
       const activeP = getActivePrincipalForMonth(c, m);
       total += (activeP * INVESTOR_RATE) / 100;
     }
-    if (c.status !== 'closed' && targetDate >= new Date().toISOString().slice(0, 10)) {
+    if (c.status !== 'closed' && targetDate >= getLocalToday()) {
       const currentMonthIdx = totalMonths + 1;
       const activeP = getActivePrincipalForMonth(c, currentMonthIdx);
       const isPaid = !!c.currentMonthInterestPaid;
@@ -1837,7 +1890,7 @@ function getAccruedAgentCommissionUpTo(c, targetDate) {
       const activeP = getActivePrincipalForMonth(c, m);
       total += (activeP * AGENT_COMMISSION_RATE) / 100;
     }
-    if (c.status !== 'closed' && targetDate >= new Date().toISOString().slice(0, 10)) {
+    if (c.status !== 'closed' && targetDate >= getLocalToday()) {
       const currentMonthIdx = totalMonths + 1;
       const activeP = getActivePrincipalForMonth(c, currentMonthIdx);
       const isPaid = !!c.currentMonthInterestPaid;
@@ -1853,7 +1906,7 @@ function getAccruedAgentCommissionUpTo(c, targetDate) {
 
 
 function getAccruedInterest(c) {
-  const today = new Date().toISOString().slice(0, 10);
+  const today = getLocalToday();
   const endD = c.status === 'closed' ? (c.endDate || today) : today;
   return getAccruedInterestUpTo(c, endD);
 }
@@ -1931,7 +1984,7 @@ function renderCustomerList() {
               <div style="font-size:14px;font-weight:700;color:var(--emerald-400)">${fmt(monthlyInt)}</div>
               <div class="text-xs text-muted">${t('owner_prefix')}${fmt(ownerP)}</div>
             ` : (() => {
-              const today = new Date().toISOString().slice(0, 10);
+              const today = getLocalToday();
               const endD = c.status === 'closed' ? (c.endDate || today) : today;
               const activeDays = daysBetweenInclusive(c.startDate, endD);
               const ownerShare = Number(c.ownerSplitPercent) || 0;
@@ -1950,7 +2003,7 @@ function renderCustomerList() {
           </td>
           <td>
             ${(() => {
-              const isPaid = c.loanType === 'monthly' ? !!c.currentMonthInterestPaid : (c.dailyPaidDates || []).includes(new Date().toISOString().slice(0, 10));
+              const isPaid = c.loanType === 'monthly' ? !!c.currentMonthInterestPaid : (c.dailyPaidDates || []).includes(getLocalToday());
               const badgeClass = isPaid ? 'badge-status-paid' : 'badge-status-unpaid';
               const badgeLabel = isPaid 
                 ? (state.lang === 'ta' ? 'செலுத்தப்பட்டது' : 'Paid') 
@@ -1998,7 +2051,7 @@ function renderCustomerList() {
             <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px">
               <span class="badge badge-${c.status}">${c.status === 'active' ? t('active_status') : t('closed_status')}</span>
               ${(() => {
-                const isPaid = c.loanType === 'monthly' ? !!c.currentMonthInterestPaid : (c.dailyPaidDates || []).includes(new Date().toISOString().slice(0, 10));
+                const isPaid = c.loanType === 'monthly' ? !!c.currentMonthInterestPaid : (c.dailyPaidDates || []).includes(getLocalToday());
                 const badgeClass = isPaid ? 'badge-status-paid' : 'badge-status-unpaid';
                 const badgeLabel = isPaid 
                   ? (state.lang === 'ta' ? 'செலுத்தப்பட்டது' : 'Paid') 
@@ -2022,7 +2075,7 @@ function renderCustomerList() {
                 <div style="font-size:13px;font-weight:700;color:var(--emerald-400)">${fmt(monthlyInterest(p))}</div>
                 <div class="text-xs text-muted">${t('owner_prefix')}${fmt(ownerProfit(c))}</div>
               ` : (() => {
-                const today = new Date().toISOString().slice(0, 10);
+                const today = getLocalToday();
                 const endD = c.status === 'closed' ? (c.endDate || today) : today;
                 const activeDays = daysBetweenInclusive(c.startDate, endD);
                 const ownerShare = Number(c.ownerSplitPercent) || 0;
@@ -2101,7 +2154,7 @@ function renderDetailPanel() {
   })() : (() => {
     // ── DAILY: dynamic profit-split calculator ──
     const method = c.dailyMethod || 'split';
-    const today  = new Date().toISOString().slice(0, 10);
+    const today  = getLocalToday();
     const startD = c.startDate || c.createdAt?.slice(0, 10) || today;
     const endD   = c.endDate   || today;
     const days   = daysBetweenInclusive(startD, endD);
@@ -2196,7 +2249,7 @@ function renderDetailPanel() {
         <div style="display:grid;grid-template-columns:1.2fr 1fr;gap:10px;margin-bottom:12px;align-items:end">
           <div class="form-group" style="margin:0">
             <label class="form-label" style="font-size:11px">${langIsTA ? 'தேதி' : 'Date'}</label>
-            <input type="date" id="recPaymentDate" class="form-input" style="height:32px;font-size:13px;padding:4px 8px" value="${new Date().toISOString().slice(0, 10)}" />
+            <input type="date" id="recPaymentDate" class="form-input" style="height:32px;font-size:13px;padding:4px 8px" value="${getLocalToday()}" />
           </div>
           <button class="btn btn-primary" onclick="addMonthlyPayment('${c.id}')" style="height:32px;font-size:12px;padding:0 12px;border-radius:8px;font-weight:600">
             ${langIsTA ? 'பதிவுசெய்க' : 'Record Payment'}
@@ -2273,7 +2326,7 @@ function renderDetailPanel() {
     ensureCustomerPaymentsInitialized(c);
     const langIsTA = state.lang === 'ta';
     const activeDates = getDailyActiveDates(c);
-    const todayStr = new Date().toISOString().slice(0, 10);
+    const todayStr = getLocalToday();
     const isTodayPaid = (c.dailyPaidDates || []).includes(todayStr);
     const todayInterestVal = Number(c.dailyRate) || 0;
     
@@ -2312,7 +2365,7 @@ function renderDetailPanel() {
         <div style="display:grid;grid-template-columns:1.2fr 1fr;gap:10px;margin-bottom:12px;align-items:end">
           <div class="form-group" style="margin:0">
             <label class="form-label" style="font-size:11px">${langIsTA ? 'தேதி' : 'Date'}</label>
-            <input type="date" id="recPaymentDate" class="form-input" style="height:32px;font-size:13px;padding:4px 8px" value="${new Date().toISOString().slice(0, 10)}" />
+            <input type="date" id="recPaymentDate" class="form-input" style="height:32px;font-size:13px;padding:4px 8px" value="${getLocalToday()}" />
           </div>
           <button class="btn btn-primary" onclick="addDailyPayment('${c.id}')" style="height:32px;font-size:12px;padding:0 12px;border-radius:8px;font-weight:600">
             ${langIsTA ? 'பதிவுசெய்க' : 'Record Payment'}
@@ -2481,8 +2534,8 @@ function renderDetailPanel() {
         </div>
         <div class="stat-item">
           <div class="stat-val">${c.loanType === 'daily' 
-            ? daysBetweenInclusive(c.startDate || c.createdAt?.slice(0,10), c.endDate || new Date().toISOString().slice(0,10))
-            : daysBetween(c.startDate || c.createdAt?.slice(0,10), c.endDate || new Date().toISOString().slice(0,10))}</div>
+            ? daysBetweenInclusive(c.startDate || c.createdAt?.slice(0,10), c.endDate || getLocalToday())
+            : daysBetween(c.startDate || c.createdAt?.slice(0,10), c.endDate || getLocalToday())}</div>
           <div class="stat-key">${t('days_active')}</div>
         </div>
       </div>
@@ -2531,7 +2584,7 @@ function renderDetailPanel() {
           <div class="form-group">
             <label class="form-label">${t('to_date')}</label>
             <input type="date" class="form-input" id="drTo" onchange="calcDateRange('${c.id}')"
-              value="${c.endDate || new Date().toISOString().slice(0,10)}">
+              value="${c.endDate || getLocalToday()}">
           </div>
         </div>
         <div id="dateRangeResult">
@@ -2577,7 +2630,7 @@ function downloadLoanSummaryPDF(customerId) {
   const doc = new jsPDF();
 
   const p = Number(c.principal);
-  const today = new Date().toISOString().slice(0, 10);
+  const today = getLocalToday();
   const startD = c.startDate || c.createdAt?.slice(0, 10) || today;
   
   const fromVal = document.getElementById('drFrom')?.value || startD;
@@ -2787,7 +2840,7 @@ function downloadLoanSummaryPDF(customerId) {
     ownLabel = `Arbitrage Margin: ${ownPct}%`;
   } else {
     // For daily, Owner Net profit rate is active gross daily interest - investor daily - agent daily
-    const activeP = getActivePrincipalForDate(c, new Date().toISOString().slice(0,10));
+    const activeP = getActivePrincipalForDate(c, getLocalToday());
     const grossDailyInterest = Number(c.dailyRate) || 0;
     const currentOwnerRate = Math.max(0, grossDailyInterest - Number(invPct) - (c.hasAgent ? Number(agPct) : 0));
     ownLabel = `Arbitrage Margin: Rs. ${currentOwnerRate.toFixed(2)}/day`;
@@ -2871,7 +2924,7 @@ function downloadCustomerReceiptPDF(customerId) {
   const doc = new jsPDF();
 
   const p = Number(c.principal);
-  const today = new Date().toISOString().slice(0, 10);
+  const today = getLocalToday();
   const startD = c.startDate || c.createdAt?.slice(0, 10) || today;
   
   const fromVal = document.getElementById('drFrom')?.value || startD;
@@ -3146,7 +3199,7 @@ function updateDailyMethod(customerId) {
 }
 
 function toggleDailyLoanInterestPaid(customerId) {
-  const todayStr = new Date().toISOString().slice(0, 10);
+  const todayStr = getLocalToday();
   toggleDailyDatePaid(customerId, todayStr);
 }
 
@@ -3341,7 +3394,7 @@ function calcDateRange(customerId) {
       const dayInv = method === 'custom' && c.dailyInvestorPayout !== undefined && c.dailyInvestorPayout !== null ? (Number(c.dailyInvestorPayout) || 0) : (Number(c.investorSplitPercent) || 0);
       const dayAgent = c.hasAgent ? (method === 'custom' && c.dailyAgentPayout !== undefined && c.dailyAgentPayout !== null ? (Number(c.dailyAgentPayout) || 0) : (Number(c.agentSplitPercent) || 0)) : 0;
       
-      const today  = new Date().toISOString().slice(0, 10);
+      const today  = getLocalToday();
       const activeP = getActivePrincipalForDate(c, today);
       const grossDailyInterest = Number(c.dailyRate) || 0;
       const currentOwnerRate = Math.max(0, grossDailyInterest - dayInv - dayAgent);
@@ -3542,7 +3595,7 @@ function updateUpfrontInterestPaidAmount() {
       const principal = Number(document.getElementById('cfPrincipal').value) || 0;
       const rate = Number(document.getElementById('cfDailyRate').value) || 0;
       const startD = document.getElementById('cfStartDate').value;
-      const endD = document.getElementById('cfEndDate').value || new Date().toISOString().slice(0, 10);
+      const endD = document.getElementById('cfEndDate').value || getLocalToday();
       const days = daysBetween(startD, endD);
       const interest = dailyInterest(principal, rate, Math.max(0, days));
       initPaidInput.value = Math.round(interest);
@@ -3573,9 +3626,9 @@ function openCustomerForm(id = null) {
     document.getElementById('cfPhone').value    = c.phone;
     document.getElementById('cfAdaguId').value  = c.adaguId;
     document.getElementById('cfPrincipal').value = c.principal;
-    document.getElementById('cfStartDate').value = c.startDate || '';
+    document.getElementById('cfStartDate').value = formatDateForInput(c.startDate);
     if (c.loanType === 'daily') {
-      document.getElementById('cfEndDate').value = c.endDate || '';
+      document.getElementById('cfEndDate').value = formatDateForInput(c.endDate);
     } else {
       document.getElementById('cfEndDate').value = '';
     }
@@ -3617,7 +3670,7 @@ function openCustomerForm(id = null) {
     selectLoanType('monthly');
     setAgentToggle(false);
     selectCommissionType('monthly');
-    document.getElementById('cfStartDate').value = new Date().toISOString().slice(0,10);
+    document.getElementById('cfStartDate').value = getLocalToday();
     document.getElementById('cfEndDate').value = '';
     document.getElementById('cfAgentCommissionRate').value = 0.5;
     
@@ -3826,10 +3879,10 @@ function openInvestorForm(id = null) {
     document.getElementById('ifName').value      = inv.name;
     document.getElementById('ifCapital').value   = inv.capital;
     document.getElementById('ifPayoutDay').value = inv.payoutDay;
-    document.getElementById('ifStartDate').value = inv.startDate || '';
+    document.getElementById('ifStartDate').value = formatDateForInput(inv.startDate);
     document.getElementById('ifNotes').value     = inv.notes || '';
   } else {
-    document.getElementById('ifStartDate').value = new Date().toISOString().slice(0,10);
+    document.getElementById('ifStartDate').value = getLocalToday();
     document.getElementById('ifPayoutDay').value = '1';
   }
   openModal('investorModal');
@@ -4066,8 +4119,8 @@ function seedDemoData() {
   addInvestor({ name: 'Suresh & Sons', capital: 100000, payoutDay: 15, startDate: '2026-03-01', notes: 'Business contact' });
 
   // Customers
-  const today = new Date().toISOString().slice(0,10);
-  const d = (n) => { const dt = new Date(); dt.setDate(dt.getDate()-n); return dt.toISOString().slice(0,10); };
+  const today = getLocalToday();
+  const d = (n) => { const dt = new Date(); dt.setDate(dt.getDate()-n); return formatLocalDate(dt); };
 
   addCustomer({ name: 'Murugan Selvam',   phone: '9876543210', adaguId: 'ADG-001', principal: 50000,  loanType: 'monthly', startDate: d(45), hasAgent: false, agentName: '', notes: 'Gold chain 22KT' });
   addCustomer({ name: 'Lalitha Devi',     phone: '9865432109', adaguId: 'ADG-002', principal: 75000,  loanType: 'monthly', startDate: d(30), hasAgent: true,  agentName: 'Kannan',  notes: 'Gold bangles set' });
@@ -4548,7 +4601,7 @@ async function pullFromGoogleSheet() {
       name: c.name || '',
       phone: c.phone || '',
       adaguId: c.adaguId || '',
-      startDate: c.startDate || new Date().toISOString().split('T')[0],
+      startDate: c.startDate || getLocalToday(),
       endDate: c.endDate || null,
       principal: parseFloat(c.principal) || 0,
       loanType: c.loanType === 'daily' ? 'daily' : 'monthly',
@@ -4573,7 +4626,7 @@ async function pullFromGoogleSheet() {
       name: inv.name || '',
       phone: inv.phone || '',
       capital: parseFloat(inv.capital) || 0,
-      startDate: inv.startDate || new Date().toISOString().split('T')[0],
+      startDate: inv.startDate || getLocalToday(),
       status: inv.status || 'active',
       payoutDate: parseInt(inv.payoutDate) || 5,
       notes: inv.notes || ''
@@ -4804,20 +4857,20 @@ function confirmImport() {
     }
 
     const dateCol = mapping['startDate'];
-    let startDate = new Date().toISOString().slice(0, 10);
+    let startDate = getLocalToday();
     if (dateCol !== undefined && row[dateCol]) {
-      const cleanDate = new Date(row[dateCol]);
+      const cleanDate = parseDate(row[dateCol]);
       if (!isNaN(cleanDate.getTime())) {
-        startDate = cleanDate.toISOString().slice(0, 10);
+        startDate = formatLocalDate(cleanDate);
       }
     }
 
     const endDateCol = mapping['endDate'];
     let endDate = null;
     if (endDateCol !== undefined && row[endDateCol]) {
-      const cleanDate = new Date(row[endDateCol]);
+      const cleanDate = parseDate(row[endDateCol]);
       if (!isNaN(cleanDate.getTime())) {
-        endDate = cleanDate.toISOString().slice(0, 10);
+        endDate = formatLocalDate(cleanDate);
       }
     }
 
