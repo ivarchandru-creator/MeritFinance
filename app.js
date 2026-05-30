@@ -1657,7 +1657,7 @@ function computeMetrics() {
   const totalInvestor = investorMonthly + investorDaily;   // ← loan-derived, not ledger-derived
   const totalAgent    = agentMonthly   + agentDaily;
   const ownerNet      = netMonthly     + netDaily;
-  const annualProj    = calculateAnnualProjFromCurrent(netMonthly + (netDaily * 30));
+  const annualProj    = calculateAnnualProjFromCurrent(netMonthly + netDaily);
 
   return {
     activeCount:       activeCustomers.length,
@@ -2239,7 +2239,7 @@ function showAnnualRevenueBreakdown() {
         badgeClass = 'badge-archived';
       }
     } else if (i === currentMonthIdx) {
-      val = m.netMonthly + (m.netDaily * 30);
+      val = m.netMonthly + m.netDaily;
       badgeText = badges.live;
       badgeClass = 'badge-live';
     }
@@ -2977,7 +2977,7 @@ function renderDashboard() {
   if (kpiDailyAgent) kpiDailyAgent.textContent = fmt(m.agentDaily, true);
   
   const kpiDailyNet = document.getElementById('kpiDailyNet');
-  if (kpiDailyNet) kpiDailyNet.textContent = fmt(m.netDaily * 30, false);
+  if (kpiDailyNet) kpiDailyNet.textContent = fmt(m.netDaily, false);
 
   // Update sub-labels dynamically
   const kpiMonthlyGrossSub = document.getElementById('kpiMonthlyGrossSub');
@@ -3002,7 +3002,7 @@ function renderDashboard() {
   if (kpiDailyAgentSub) kpiDailyAgentSub.textContent = langIsTA ? 'முகவர் பரிந்துரை கமிஷன்' : 'Agent referral commission';
   
   const kpiDailyNetSub = document.getElementById('kpiDailyNetSub');
-  if (kpiDailyNetSub) kpiDailyNetSub.textContent = langIsTA ? 'தினசரி கடன்களிலிருந்து கணிக்கப்பட்ட மாதாந்திர லாபம்' : 'Projected monthly from daily loans';
+  if (kpiDailyNetSub) kpiDailyNetSub.textContent = langIsTA ? 'இந்த மாதத்தில் வசூலிக்கப்பட்ட நிகர லாபம்' : 'Actual accumulated net profit this month';
 
   // Populate Aggregate Overview Rows
   const monthlyCardVal = parseCardValue('kpiMonthlyNet');
