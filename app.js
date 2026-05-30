@@ -2306,7 +2306,6 @@ function renderDetailPanel() {
     const interestPaid = Number(c.paidInterest) || 0;
     
     // Calculate total interest paid strictly before today
-    const todayStr = new Date().toISOString().slice(0, 10);
     const interestPayments = (c.payments || []).filter(p => p.type === 'interest');
     const paidInterestBeforeToday = interestPayments
       .filter(p => p.date < todayStr)
