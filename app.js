@@ -1276,38 +1276,24 @@ function getRealizedProfitForMonth(monthStr) {
   return Math.round(totalRealized);
 }
 
+function parseCardValue(elementId) {
+  const el = document.getElementById(elementId);
+  if (!el) return 0;
+  const text = el.textContent || '';
+  const num = Number(text.replace(/[^0-9.-]/g, ''));
+  return isNaN(num) ? 0 : num;
+}
+
 function getOverallAnnualProfit() {
   const today = getLocalToday();
   const currentYear = today.slice(0, 4);
   const currentMonthNum = parseInt(today.slice(5, 7), 10);
   const currentMonthIdx = currentMonthNum - 1;
   
-  // Calculate current month's dynamic active display values strictly from the dashboard metrics
-  const activeCustomers = state.customers.filter(c => c.status === 'active');
-  const monthly = activeCustomers.filter(c => c.loanType === 'monthly');
-  const daily = activeCustomers.filter(c => c.loanType === 'daily');
-  
-  let netMonthly = 0;
-  for (const c of monthly) {
-    if (c.currentMonthInterestPaid) {
-      const currentMonthIdx = getCurrentMonthIndex(c);
-      const activeP = getActivePrincipalForMonth(c, currentMonthIdx);
-      const rate = MONTHLY_CUSTOMER_RATE - INVESTOR_RATE - (c.hasAgent ? AGENT_COMMISSION_RATE : 0);
-      netMonthly += (activeP * rate) / 100;
-    }
-  }
-  
-  let netDaily = 0;
-  for (const c of daily) {
-    const paidDatesInMonth = (c.dailyPaidDates || []).filter(d => d.startsWith(today.slice(0, 7)));
-    const paidDaysCount = paidDatesInMonth.length;
-    if (paidDaysCount > 0) {
-      const { ownerDailyRate } = getDailyRates(c);
-      netDaily += ownerDailyRate * paidDaysCount;
-    }
-  }
-  
-  const currentMonthProfit = netMonthly + (netDaily * 30);
+  // Calculate current month's dynamic active display values strictly from the dashboard cards
+  const monthlyCardVal = parseCardValue('kpiMonthlyNet');
+  const dailyCardVal = parseCardValue('kpiDailyNet');
+  const currentMonthProfit = monthlyCardVal + dailyCardVal;
   
   let totalAnnual = 0;
   for (let i = 0; i < 12; i++) {
@@ -1316,8 +1302,6 @@ function getOverallAnnualProfit() {
       const archived = (state.monthlyArchives || []).find(a => a.month === monthStr);
       if (archived) {
         totalAnnual += Number(archived.ownerNetProfit) || 0;
-      } else {
-        totalAnnual += getRealizedProfitForMonth(monthStr);
       }
     } else if (i === currentMonthIdx) {
       totalAnnual += currentMonthProfit;
@@ -1339,8 +1323,6 @@ function calculateAnnualProjFromCurrent(currentMonthProfit) {
       const archived = (state.monthlyArchives || []).find(a => a.month === monthStr);
       if (archived) {
         totalAnnual += Number(archived.ownerNetProfit) || 0;
-      } else {
-        totalAnnual += getRealizedProfitForMonth(monthStr);
       }
     } else if (i === currentMonthIdx) {
       totalAnnual += currentMonthProfit;
@@ -2139,12 +2121,6 @@ function showAnnualRevenueBreakdown() {
         val = Number(archived.ownerNetProfit) || 0;
         badgeText = badges.archived;
         badgeClass = 'badge-archived';
-      } else {
-        val = getRealizedProfitForMonth(monthStr);
-        if (val > 0) {
-          badgeText = badges.archived;
-          badgeClass = 'badge-archived';
-        }
       }
     } else if (i === currentMonthIdx) {
       val = m.netMonthly + (m.netDaily * 30);
@@ -2877,7 +2853,9 @@ function renderDashboard() {
   if (kpiDailyNetSub) kpiDailyNetSub.textContent = langIsTA ? 'தினசரி கடன்களிலிருந்து கணிக்கப்பட்ட மாதாந்திர லாபம்' : 'Projected monthly from daily loans';
 
   // Populate Aggregate Overview Rows
-  const combinedMonthly = m.netMonthly + (m.netDaily * 30);
+  const monthlyCardVal = parseCardValue('kpiMonthlyNet');
+  const dailyCardVal = parseCardValue('kpiDailyNet');
+  const combinedMonthly = monthlyCardVal + dailyCardVal;
   const overallAnnual = getOverallAnnualProfit();
 
   const valCombinedMonthlyProfit = document.getElementById('valCombinedMonthlyProfit');
