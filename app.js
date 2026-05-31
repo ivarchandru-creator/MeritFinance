@@ -3529,20 +3529,26 @@ function downloadDailyInterestMonthReport(monthName, startDate, endDate) {
 
     // Accrued and Paid calculations up to the end of this historical month
     const startD = c.startDate || c.createdAt?.slice(0, 10) || endDate;
-    const toVal = (c.status === 'closed' && c.endDate && c.endDate < endDate) ? c.endDate : endDate;
-    const activeStart = (startD > startDate) ? startD : startDate;
-    const daysActive = daysBetweenInclusive(activeStart, toVal);
+    const endD = c.endDate || getLocalToday();
+
+    // Total Expected Interest Cell: Force the value calculated from the active tenure days spanned between StartDate and EndDate
+    const calculatedDays = daysBetweenInclusive(startD, endD);
+    const tenureDays = c.daysActive !== undefined && c.daysActive !== null ? c.daysActive : calculatedDays;
+
     const { rate: dRate, invPayout: dInv, agentPayout: dAgent } = getDailyRates(c);
     const ownerDailyRate = Math.max(0, dRate - dInv - dAgent);
-    const totalAccrued = daysActive * ownerDailyRate;
-    const ownerFraction = dRate > 0 ? (ownerDailyRate / dRate) : 0;
+    const totalExpectedInterest = tenureDays * dRate; // (e.g., 2 days * ₹500 = Rs. 1,000)
 
+    // Owner Profit (Realized Collected) Cell: Map strictly the actual sum of dynamic interest payments manually recorded and marked as "Paid" for that customer during the month (scaled by owner fraction)
+    const ownerFraction = dRate > 0 ? (ownerDailyRate / dRate) : 0;
     const ownerCollected = collectedInMonth * ownerFraction;
-    const dynamicPending = Math.max(0, totalAccrued - ownerCollected);
+
+    // Pending Profit: The remaining amount calculated exactly by subtracting the collected owner profit from the expected profit (e.g., ₹1,000 - ₹0 = ₹1,000)
+    const dynamicPending = totalExpectedInterest - ownerCollected;
 
     totalDailyRealizedProfit += ownerCollected;
     totalDailyPendingPayments += dynamicPending;
-    totalDailyExpectedProfit += totalAccrued;
+    totalDailyExpectedProfit += totalExpectedInterest;
 
     listData.push({
       name: c.name || 'Unknown',
@@ -3550,7 +3556,7 @@ function downloadDailyInterestMonthReport(monthName, startDate, endDate) {
       principal: Number(c.principal) || 0,
       collected: ownerCollected,
       remaining: dynamicPending,
-      expected30D: totalAccrued
+      expected30D: totalExpectedInterest
     });
   }
 
@@ -5900,7 +5906,7 @@ function openCustomerForm(id = null) {
     // Loan type
     selectLoanType(c.loanType);
     if (c.loanType === 'daily') {
-      document.getElementById('cfDailyRate').value = c.dailyRate;
+      document.getElementById('cfDailyRate').value = c.dailyInterestRate !== undefined && c.dailyInterestRate !== null ? c.dailyInterestRate : c.dailyRate;
     }
     // Agent
     setAgentToggle(c.hasAgent);
@@ -5915,8 +5921,8 @@ function openCustomerForm(id = null) {
       selectCommissionType('monthly');
     }
     // Load split percentages
-    document.getElementById('cfInvestorSplitPercent').value = c.investorSplitPercent !== undefined && c.investorSplitPercent !== null ? c.investorSplitPercent : (c.loanType === 'daily' ? 0 : 66.67);
-    document.getElementById('cfAgentSplitPercent').value = c.agentSplitPercent !== undefined && c.agentSplitPercent !== null ? c.agentSplitPercent : (c.loanType === 'daily' ? 0 : (c.hasAgent ? 16.67 : 0));
+    document.getElementById('cfInvestorSplitPercent').value = c.investorPerDayRate !== undefined && c.investorPerDayRate !== null ? c.investorPerDayRate : (c.investorSplitPercent !== undefined && c.investorSplitPercent !== null ? c.investorSplitPercent : (c.loanType === 'daily' ? 0 : 66.67));
+    document.getElementById('cfAgentSplitPercent').value = c.agentPerDayRate !== undefined && c.agentPerDayRate !== null ? c.agentPerDayRate : (c.agentSplitPercent !== undefined && c.agentSplitPercent !== null ? c.agentSplitPercent : (c.loanType === 'daily' ? 0 : (c.hasAgent ? 16.67 : 0)));
     updateFormSplitPercentages();
 
     // Load Photo
