@@ -1218,9 +1218,9 @@ function getDailyLoanMetrics(c, days) {
 
 function getDailyRates(c) {
   if (!c) return { rate: 0, invPayout: 0, agentPayout: 0, ownerDailyRate: 0 };
-  const rate = Number(c.dailyRate) || 0;
-  const invPayout = c.dailyMethod === 'custom' ? (Number(c.dailyInvestorPayout) || 0) : rate * ((Number(c.investorSplitPercent) || 0) / 100);
-  const agentPayout = c.hasAgent ? (c.dailyMethod === 'custom' ? (Number(c.dailyAgentPayout) || 0) : rate * ((Number(c.agentSplitPercent) || 0) / 100)) : 0;
+  const rate = Number(c.dailyInterestRate !== undefined && c.dailyInterestRate !== null ? c.dailyInterestRate : (c.dailyRate || 0));
+  const invPayout = Number(c.investorPerDayRate !== undefined && c.investorPerDayRate !== null ? c.investorPerDayRate : (c.dailyMethod === 'custom' ? (c.dailyInvestorPayout || 0) : (c.investorSplitPercent || 0))) || 0;
+  const agentPayout = c.hasAgent ? Number(c.agentPerDayRate !== undefined && c.agentPerDayRate !== null ? c.agentPerDayRate : (c.dailyMethod === 'custom' ? (c.dailyAgentPayout || 0) : (c.agentSplitPercent || 0))) || 0 : 0;
   const ownerDailyRate = Math.max(0, rate - invPayout - agentPayout);
   return { rate, invPayout, agentPayout, ownerDailyRate };
 }
@@ -1764,6 +1764,7 @@ function addCustomer(data) {
     principal: Number(data.principal),
     loanType:  data.loanType,
     dailyRate: data.loanType === 'daily' ? Number(data.dailyRate) : null,
+    dailyInterestRate: data.loanType === 'daily' ? Number(data.dailyRate) : null,
     startDate: data.startDate,
     endDate:   data.loanType === 'daily' ? (data.endDate || null) : null,
     hasAgent:  Boolean(data.hasAgent),
@@ -1778,6 +1779,9 @@ function addCustomer(data) {
     investorSplitPercent: data.investorSplitPercent !== undefined ? Number(data.investorSplitPercent) : null,
     agentSplitPercent:    data.agentSplitPercent !== undefined ? Number(data.agentSplitPercent) : null,
     ownerSplitPercent:    data.ownerSplitPercent !== undefined ? Number(data.ownerSplitPercent) : null,
+    investorPerDayRate:   data.loanType === 'daily' ? Number(data.investorSplitPercent || 0) : null,
+    agentPerDayRate:      data.loanType === 'daily' && data.hasAgent ? Number(data.agentSplitPercent || 0) : null,
+    daysActive:           data.loanType === 'daily' ? daysBetweenInclusive(data.startDate || getLocalToday(), data.endDate || getLocalToday()) : null,
     // Photo proof
     jewelPhoto:           data.jewelPhoto || null,
     payments:             [],
@@ -1882,6 +1886,7 @@ function updateCustomer(id, data) {
     principal: Number(data.principal),
     loanType:  data.loanType,
     dailyRate: data.loanType === 'daily' ? Number(data.dailyRate) : null,
+    dailyInterestRate: data.loanType === 'daily' ? Number(data.dailyRate) : null,
     startDate: data.startDate,
     endDate:   data.loanType === 'daily' ? (data.endDate || null) : null,
     hasAgent:  Boolean(data.hasAgent),
@@ -1896,6 +1901,9 @@ function updateCustomer(id, data) {
     investorSplitPercent: data.investorSplitPercent !== undefined ? Number(data.investorSplitPercent) : (oldC.investorSplitPercent || null),
     agentSplitPercent:    data.agentSplitPercent !== undefined ? Number(data.agentSplitPercent) : (oldC.agentSplitPercent || null),
     ownerSplitPercent:    data.ownerSplitPercent !== undefined ? Number(data.ownerSplitPercent) : (oldC.ownerSplitPercent || null),
+    investorPerDayRate:   data.loanType === 'daily' ? Number(data.investorSplitPercent || 0) : null,
+    agentPerDayRate:      data.loanType === 'daily' && data.hasAgent ? Number(data.agentSplitPercent || 0) : null,
+    daysActive:           data.loanType === 'daily' ? daysBetweenInclusive(data.startDate || oldC.startDate || getLocalToday(), data.endDate || getLocalToday()) : null,
     // Photo proof
     jewelPhoto:           data.jewelPhoto !== undefined ? data.jewelPhoto : (oldC.jewelPhoto || null),
     notes:     (data.notes || '').trim(),
@@ -4051,7 +4059,7 @@ function renderCustomerList() {
         </td>
         <td>
           <span class="badge badge-${c.loanType}">${c.loanType === 'monthly' ? t('monthly_badge') : t('daily_badge')}</span>
-          ${c.loanType === 'daily' ? `<div class="text-xs text-muted mt-1">₹${c.dailyRate}/day</div>` : ''}
+          ${c.loanType === 'daily' ? `<div class="text-xs text-muted mt-1">₹${c.dailyInterestRate !== undefined && c.dailyInterestRate !== null ? c.dailyInterestRate : c.dailyRate}/day</div>` : ''}
         </td>
         <td>
           ${c.loanType === 'monthly' ? `
@@ -4122,7 +4130,7 @@ function renderCustomerList() {
           <div class="mobile-card-meta">
             <div class="mobile-card-principal">${fmt(p)}</div>
             <div style="font-size:12px;color:var(--text-muted)">
-              ${c.loanType === 'monthly' ? t('monthly_badge') + ' (3%)' : t('daily_badge') + ' (₹' + c.dailyRate + '/day)'}
+              ${c.loanType === 'monthly' ? t('monthly_badge') + ' (3%)' : t('daily_badge') + ' (₹' + (c.dailyInterestRate !== undefined && c.dailyInterestRate !== null ? c.dailyInterestRate : c.dailyRate) + '/day)'}
             </div>
             <div style="font-size:13px;font-weight:700;color:var(--blue-400);margin-top:4px">
               ${t('paid_principal_label')}: ${fmt(c.paidPrincipal || 0)}
@@ -4255,19 +4263,21 @@ function renderDetailPanel() {
     </div>`;
   })() : (() => {
     // ── DAILY: dynamic profit-split calculator ──
-    const method = c.dailyMethod || 'split';
-    const today  = getLocalToday();
+    const BaseDailyRate = Number(c.dailyInterestRate !== undefined && c.dailyInterestRate !== null ? c.dailyInterestRate : (c.dailyRate || 0));
+    const InvestorRatePerDay = Number(c.investorPerDayRate !== undefined && c.investorPerDayRate !== null ? c.investorPerDayRate : (c.investorSplitPercent || 0));
+    const AgentRatePerDay = Number(c.agentPerDayRate !== undefined && c.agentPerDayRate !== null ? c.agentPerDayRate : (c.agentSplitPercent || 0));
     
-    // --- FORCE-FIX RULE 1: DYNAMIC ELAPSED DAYS CALCULATOR (Inclusive) ---
     const startD = c.startDate || c.createdAt?.slice(0, 10) || getLocalToday();
     const endD = c.endDate || getLocalToday();
-    
-    // For the primary top block, calculate the total expected profit for the FULL tenure:
-    const tenureEndDate = c.endDate || endD;
-    const totalTenureDays = daysBetweenInclusive(startD, tenureEndDate);
-    const dmExpected = getDailyAccruedMetricsForRange(c, startD, tenureEndDate);
+    const calculatedDays = daysBetweenInclusive(startD, endD);
+    const TotalContractDays = Number(c.daysActive !== undefined && c.daysActive !== null ? c.daysActive : calculatedDays);
 
-    const { rate: grossDailyInterest, invPayout: dayInv, agentPayout: dayAgent, ownerDailyRate: currentOwnerRate } = getDailyRates(c);
+    const Net_Per_Day = BaseDailyRate - InvestorRatePerDay - AgentRatePerDay;
+
+    const grossFullTenure = BaseDailyRate * TotalContractDays;
+    const investorCostFullTenure = InvestorRatePerDay * TotalContractDays;
+    const agentPayFullTenure = AgentRatePerDay * TotalContractDays;
+    const ownerNetFullTenure = Net_Per_Day * TotalContractDays;
 
     return `
     <div class="detail-section">
@@ -4276,27 +4286,27 @@ function renderDetailPanel() {
       </div>
       <div class="profit-breakdown" id="dmBreakdown">
         <div class="profit-row gross">
-          <span class="profit-row-label">${state.lang === 'ta' ? 'மொத்த வட்டி (முழு காலம்)' : 'Gross Interest (Full Tenure)'} (${totalTenureDays} ${t('days_suffix')})</span>
-          <span class="profit-row-amount">${fmt(dmExpected.gross)}</span>
+          <span class="profit-row-label">${state.lang === 'ta' ? 'மொத்த வட்டி (முழு காலம்)' : 'Gross Interest (Full Tenure)'} (${TotalContractDays} ${t('days_suffix')})</span>
+          <span class="profit-row-amount">${fmt(grossFullTenure)}</span>
         </div>
         <div class="profit-row deduct">
           <span class="profit-row-label">
-            ${state.lang === 'ta' ? 'முதலீட்டாளர் பங்கு' : 'Investor Share'} (₹${dayInv}/day)
+            ${state.lang === 'ta' ? 'முதலீட்டாளர் பங்கு' : 'Investor Share'} (₹${InvestorRatePerDay}/day)
           </span>
-          <span class="profit-row-amount">−${fmt(dmExpected.investorCost)}</span>
+          <span class="profit-row-amount">${InvestorRatePerDay > 0 ? `−${fmt(investorCostFullTenure)}` : '−₹0'}</span>
         </div>
-        ${dayAgent > 0 || c.hasAgent ? `
+        ${c.hasAgent || AgentRatePerDay > 0 ? `
         <div class="profit-row deduct-agent">
           <span class="profit-row-label">
-            ${state.lang === 'ta' ? 'முகவர் பங்கு' : 'Agent Share'} (₹${dayAgent}/day)
+            ${state.lang === 'ta' ? 'முகவர் பங்கு' : 'Agent Share'} (₹${AgentRatePerDay}/day)
           </span>
-          <span class="profit-row-amount">−${fmt(dmExpected.agentPay)}</span>
+          <span class="profit-row-amount">${AgentRatePerDay > 0 ? `−${fmt(agentPayFullTenure)}` : '−₹0'}</span>
         </div>` : ''}
         <div class="profit-row net">
           <span class="profit-row-label" style="font-weight:800">
-            ${state.lang === 'ta' ? 'உரிமையாளர் பங்கு' : 'Owner Share'} (₹${currentOwnerRate.toFixed(2)}/day)
+            ${state.lang === 'ta' ? 'உரிமையாளர் பங்கு' : 'Owner Share'} (₹${Net_Per_Day.toFixed(2)}/day)
           </span>
-          <span class="profit-row-amount" style="font-weight:800">${fmt(dmExpected.ownerNet)}</span>
+          <span class="profit-row-amount" style="font-weight:800">${fmt(ownerNetFullTenure)}</span>
         </div>
       </div>
     </div>`;
@@ -4433,10 +4443,11 @@ function renderDetailPanel() {
     const endD = c.endDate || getLocalToday();
     
     // Forcefully calculate the exact total number of active days elapsed (inclusive calculation)
-    let elapsedDays = daysBetweenInclusive(startD, endD);
+    const calculatedDays = daysBetweenInclusive(startD, endD);
+    let elapsedDays = Number(c.daysActive !== undefined && c.daysActive !== null ? c.daysActive : calculatedDays);
     
     // --- FORCE-FIX RULE 2: ENFORCE THE CORRECT BASE VALUES ---
-    const customDailyRate = Number(c.dailyRate) || 0;
+    const customDailyRate = Number(c.dailyInterestRate !== undefined && c.dailyInterestRate !== null ? c.dailyInterestRate : (c.dailyRate || 0));
     const totalAccruedInterest = elapsedDays * customDailyRate;
     const totalInterestDue = totalAccruedInterest;
 
@@ -4608,7 +4619,7 @@ function renderDetailPanel() {
         </div>
         <div class="stat-item">
           <div class="stat-key">${t('interest_label')}</div>
-          <div class="stat-val">${c.loanType === 'monthly' ? fmt(monthlyInterest(c), true) + '/' + (state.lang === 'ta' ? 'மா' : 'mo') : '₹' + c.dailyRate + '/' + (state.lang === 'ta' ? 'நாள்' : 'day')}</div>
+          <div class="stat-val">${c.loanType === 'monthly' ? fmt(monthlyInterest(c), true) + '/' + (state.lang === 'ta' ? 'மா' : 'mo') : '₹' + (c.dailyInterestRate !== undefined && c.dailyInterestRate !== null ? c.dailyInterestRate : c.dailyRate) + '/' + (state.lang === 'ta' ? 'நாள்' : 'day')}</div>
         </div>
         <div class="stat-item">
           <div class="stat-key">
@@ -4620,7 +4631,7 @@ function renderDetailPanel() {
           <div class="stat-val">
             ${c.loanType === 'monthly' 
               ? getCurrentMonthIndex(c)
-              : daysBetweenInclusive(c.startDate || c.createdAt?.slice(0,10), c.endDate || getLocalToday())
+              : (c.daysActive !== undefined && c.daysActive !== null ? c.daysActive : daysBetweenInclusive(c.startDate || c.createdAt?.slice(0,10), c.endDate || getLocalToday()))
             }
           </div>
         </div>
@@ -4644,7 +4655,7 @@ function renderDetailPanel() {
         </div>` : ''}
         <div class="detail-row">
           <span class="detail-row-label">${t('loan_type_label')}</span>
-          <span class="detail-row-value">${c.loanType === 'monthly' ? t('monthly_loan_type_desc') : t('daily_loan_type_desc', { rate: c.dailyRate })}</span>
+          <span class="detail-row-value">${c.loanType === 'monthly' ? t('monthly_loan_type_desc') : t('daily_loan_type_desc', { rate: (c.dailyInterestRate !== undefined && c.dailyInterestRate !== null ? c.dailyInterestRate : c.dailyRate) })}</span>
         </div>
         ${c.notes ? `
         <div class="detail-row">
@@ -4805,7 +4816,7 @@ function downloadLoanSummaryPDF(customerId) {
   doc.setFont("helvetica", "normal");
   doc.text("Interest Rate:", 110, y);
   doc.setFont("helvetica", "bold");
-  doc.text(c.loanType === 'monthly' ? "3% per month" : `Rs. ${c.dailyRate} per day`, 145, y);
+  doc.text(c.loanType === 'monthly' ? "3% per month" : `Rs. ${c.dailyInterestRate !== undefined && c.dailyInterestRate !== null ? c.dailyInterestRate : c.dailyRate} per day`, 145, y);
   y += 7;
 
   if (c.endDate) {
@@ -5190,7 +5201,7 @@ function downloadCustomerReceiptPDF(customerId) {
   doc.setFont("helvetica", "normal");
   doc.text("Interest Rate:", 110, y);
   doc.setFont("helvetica", "bold");
-  doc.text(c.loanType === 'monthly' ? "3% per month" : `Rs. ${c.dailyRate} per day`, 145, y);
+  doc.text(c.loanType === 'monthly' ? "3% per month" : `Rs. ${c.dailyInterestRate !== undefined && c.dailyInterestRate !== null ? c.dailyInterestRate : c.dailyRate} per day`, 145, y);
   y += 7;
 
   if (c.endDate) {
@@ -5457,7 +5468,7 @@ function toggleDailyDatePaid(customerId, dateStr) {
   
   ensureCustomerPaymentsInitialized(c);
   let updatedPayments = [...c.payments];
-  const rate = Number(c.dailyRate) || 0;
+  const rate = Number(c.dailyInterestRate !== undefined && c.dailyInterestRate !== null ? c.dailyInterestRate : (c.dailyRate || 0));
   
   if (dateIdx > -1) {
     // Unchecking: remove from paidDates and find the corresponding interest payment for this date
@@ -6893,6 +6904,7 @@ async function pullFromGoogleSheet() {
       principal: parseFloat(c.principal) || 0,
       loanType: c.loanType === 'daily' ? 'daily' : 'monthly',
       dailyRate: parseFloat(c.dailyRate) || 0,
+      dailyInterestRate: c.dailyInterestRate !== undefined && c.dailyInterestRate !== '' && c.dailyInterestRate !== null ? parseFloat(c.dailyInterestRate) : (parseFloat(c.dailyRate) || 0),
       hasAgent: String(c.hasAgent).toLowerCase() === 'true',
       agentName: c.agentName || '',
       agentCommissionRate: c.agentCommissionRate !== undefined && c.agentCommissionRate !== '' && c.agentCommissionRate !== null ? parseFloat(c.agentCommissionRate) : null,
@@ -6903,6 +6915,9 @@ async function pullFromGoogleSheet() {
       investorSplitPercent: c.investorSplitPercent !== undefined && c.investorSplitPercent !== '' && c.investorSplitPercent !== null ? parseFloat(c.investorSplitPercent) : null,
       agentSplitPercent: c.agentSplitPercent !== undefined && c.agentSplitPercent !== '' && c.agentSplitPercent !== null ? parseFloat(c.agentSplitPercent) : null,
       ownerSplitPercent: c.ownerSplitPercent !== undefined && c.ownerSplitPercent !== '' && c.ownerSplitPercent !== null ? parseFloat(c.ownerSplitPercent) : null,
+      investorPerDayRate: c.investorPerDayRate !== undefined && c.investorPerDayRate !== '' && c.investorPerDayRate !== null ? parseFloat(c.investorPerDayRate) : (parseFloat(c.investorSplitPercent) || 0),
+      agentPerDayRate: c.agentPerDayRate !== undefined && c.agentPerDayRate !== '' && c.agentPerDayRate !== null ? parseFloat(c.agentPerDayRate) : (parseFloat(c.agentSplitPercent) || 0),
+      daysActive: c.daysActive !== undefined && c.daysActive !== '' && c.daysActive !== null ? parseInt(c.daysActive) : (c.loanType === 'daily' ? daysBetweenInclusive(c.startDate || getLocalToday(), c.endDate || getLocalToday()) : null),
       jewelPhoto: c.jewelPhoto || null,
       paidInterest: c.paidInterest !== undefined && c.paidInterest !== '' && c.paidInterest !== null ? parseFloat(c.paidInterest) : 0,
       paidPrincipal: c.paidPrincipal !== undefined && c.paidPrincipal !== '' && c.paidPrincipal !== null ? parseFloat(c.paidPrincipal) : 0
