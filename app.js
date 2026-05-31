@@ -2969,6 +2969,192 @@ function downloadMonthlyInterestPortfolioStatement() {
   doc.save(`${monthName.replace(/\s+/g, '_')}_Monthly_Interest_Portfolio_Statement.pdf`);
 }
 
+function downloadDailyInterestPortfolioStatement() {
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF();
+  doc.setLineHeightFactor(1.15);
+
+  const today = getLocalToday();
+  const currentYear = today.slice(0, 4);
+  const currentMonthStr = today.slice(5, 7);
+  const currentMonthNum = parseInt(currentMonthStr, 10);
+  const monthNamesEnglish = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+  const monthName = monthNamesEnglish[currentMonthNum - 1] + " " + currentYear;
+
+  let totalDailyRealizedProfit = 0;
+  let totalDailyPendingPayments = 0;
+  const listData = [];
+  const currentMonthPrefix = today.slice(0, 7);
+
+  const dailyOnlyCustomers = state.customers
+    .filter(c => c.status === 'active' && (c.loanType === 'daily' || c.loanType === 'Daily'))
+    .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+
+  for (const c of dailyOnlyCustomers) {
+    ensureCustomerPaymentsInitialized(c);
+
+    // Collected Interest in active calendar month
+    let collectedInMonth = 0;
+    if (c.payments) {
+      for (const p of c.payments) {
+        if (p.date && p.date.startsWith(currentMonthPrefix) && (p.type === 'interest' || p.type === 'Interest') && (p.status === 'Paid' || !p.status || p.status.toLowerCase() === 'paid')) {
+          collectedInMonth += Number(p.amount) || 0;
+        }
+      }
+    }
+
+    // Unpaid Due (remaining due)
+    const startD = c.startDate || c.createdAt?.slice(0, 10) || today;
+    const endD = c.status === 'closed' ? (c.endDate || today) : today;
+    const daysActive = daysBetweenInclusive(startD, endD);
+    const dailyRate = Number(c.dailyRate) || 0;
+    const accrued = daysActive * dailyRate;
+
+    const totalPaid = (c.payments || [])
+      .filter(p => (p.type === 'interest' || p.type === 'Interest') && (p.status === 'Paid' || !p.status || p.status.toLowerCase() === 'paid'))
+      .reduce((s, p) => s + (Number(p.amount) || 0), 0);
+
+    const remainingDue = Math.max(0, accrued - totalPaid);
+
+    totalDailyRealizedProfit += collectedInMonth;
+    totalDailyPendingPayments += remainingDue;
+
+    listData.push({
+      name: c.name || 'Unknown',
+      adaguId: c.adaguId || '—',
+      principal: Number(c.principal) || 0,
+      collected: collectedInMonth,
+      remaining: remainingDue
+    });
+  }
+
+  // Format helper to ensure absolute zero-baseline rendering (Rs. 0 for zero values)
+  const formatPdfVal = (val) => {
+    const v = Math.round(val);
+    if (v === 0) return "Rs. 0";
+    return (v < 0 ? "-" : "") + "Rs. " + Math.abs(v).toLocaleString('en-IN');
+  };
+
+  // 1. Draw Header Banner
+  doc.setFillColor(16, 185, 129); // emerald-500
+  doc.rect(0, 0, 210, 40, 'F');
+
+  doc.setTextColor(255, 255, 255);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(16);
+  doc.text("DAILY INTEREST PORTFOLIO (MONTHLY SUMMARY REPORT)", 105, 18, { align: "center" });
+
+  doc.setFontSize(11);
+  doc.setFont("helvetica", "normal");
+  doc.text(`Financial Statement - ${monthName}`, 105, 28, { align: "center" });
+  doc.setFontSize(8.5);
+  doc.text(`Generated on: ${new Date().toLocaleString('en-IN')}`, 105, 34, { align: "center" });
+
+  // 2. Summary Box
+  let y = 50;
+  doc.setFillColor(248, 250, 252); // slate-50
+  doc.setDrawColor(226, 232, 240); // slate-200
+  doc.rect(15, y, 180, 26, 'FD');
+
+  // Vert line in box
+  doc.line(105, y, 105, y + 26);
+
+  // Left KPI: Total Realized Profit (Collected)
+  doc.setTextColor(100, 116, 139); // slate-500
+  doc.setFontSize(8.5);
+  doc.setFont("helvetica", "bold");
+  doc.text("TOTAL REALIZED PROFIT (COLLECTED)", 20, y + 8);
+  doc.setTextColor(4, 120, 87); // emerald-700
+  doc.setFontSize(14);
+  doc.text(formatPdfVal(totalDailyRealizedProfit), 20, y + 18);
+
+  // Right KPI: Total Pending Payments (Unpaid)
+  doc.setTextColor(100, 116, 139); // slate-500
+  doc.setFontSize(8.5);
+  doc.setFont("helvetica", "bold");
+  doc.text("TOTAL PENDING PAYMENTS (UNPAID)", 110, y + 8);
+  doc.setTextColor(185, 28, 28); // rose-700
+  doc.setFontSize(14);
+  doc.text(formatPdfVal(totalDailyPendingPayments), 110, y + 18);
+
+  y += 38;
+
+  // 3. Table section
+  doc.setTextColor(51, 51, 51);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(11);
+  doc.text("ACTIVE PORTFOLIO BREAKDOWN", 15, y);
+  y += 6;
+
+  // Table Headers
+  doc.setFillColor(241, 245, 249); // slate-100
+  doc.rect(15, y, 180, 8, 'F');
+  doc.setDrawColor(226, 232, 240);
+  doc.line(15, y + 8, 195, y + 8);
+
+  doc.setFontSize(9);
+  doc.setFont("helvetica", "bold");
+  doc.text("CUSTOMER NAME", 18, y + 5.5);
+  doc.text("ADAGU ID", 75, y + 5.5);
+  doc.text("PRINCIPAL (RS.)", 120, y + 5.5, { align: "right" });
+  doc.text("COLLECTED INTEREST", 155, y + 5.5, { align: "right" });
+  doc.text("REMAINING DUE", 195, y + 5.5, { align: "right" });
+
+  y += 8;
+
+  doc.setFont("helvetica", "normal");
+  if (listData.length === 0) {
+    doc.setFontSize(9);
+    doc.text("No active daily loans found.", 105, y + 10, { align: "center" });
+  } else {
+    for (const row of listData) {
+      if (y > 270) {
+        doc.addPage();
+        y = 20;
+
+        // Draw table header on new page
+        doc.setFillColor(241, 245, 249);
+        doc.rect(15, y, 180, 8, 'F');
+        doc.setDrawColor(226, 232, 240);
+        doc.line(15, y + 8, 195, y + 8);
+
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(9);
+        doc.text("CUSTOMER NAME", 18, y + 5.5);
+        doc.text("ADAGU ID", 75, y + 5.5);
+        doc.text("PRINCIPAL (RS.)", 120, y + 5.5, { align: "right" });
+        doc.text("COLLECTED INTEREST", 155, y + 5.5, { align: "right" });
+        doc.text("REMAINING DUE", 195, y + 5.5, { align: "right" });
+
+        y += 8;
+        doc.setFont("helvetica", "normal");
+      }
+
+      doc.setFontSize(8.5);
+      const wrappedName = doc.splitTextToSize(row.name, 50);
+      doc.text(wrappedName, 18, y + 5);
+      doc.text(`#${row.adaguId}`, 75, y + 5);
+      doc.text(row.principal.toLocaleString('en-IN'), 120, y + 5, { align: "right" });
+      doc.text(formatPdfVal(row.collected), 155, y + 5, { align: "right" });
+
+      if (row.remaining > 0) {
+        doc.setFont("helvetica", "bold");
+        doc.setTextColor(185, 28, 28); // rose-700
+      }
+      doc.text(formatPdfVal(row.remaining), 195, y + 5, { align: "right" });
+      doc.setTextColor(51, 51, 51);
+      doc.setFont("helvetica", "normal");
+
+      const lines = wrappedName.length;
+      const rowHeight = Math.max(8, lines * 4);
+      doc.line(15, y + rowHeight, 195, y + rowHeight);
+      y += rowHeight;
+    }
+  }
+
+  doc.save(`${monthName.replace(/\s+/g, '_')}_Daily_Interest_Portfolio_Statement.pdf`);
+}
+
 function downloadMonthReports(monthIndex) {
   const monthNamesEnglish = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
   const monthNameEng = monthNamesEnglish[monthIndex];
