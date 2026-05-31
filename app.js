@@ -1559,6 +1559,8 @@ function computeMetrics() {
   const monthly  = activeCustomers.filter(c => c.loanType === 'monthly');
   const daily    = activeCustomers.filter(c => c.loanType === 'daily');
   const today    = getLocalToday();
+  const currentMonthPrefix = today.slice(0, 7);
+  const isFirstOfMonth = today.endsWith('-01');
 
   // ── Monthly loans analytics (strictly accumulated from paid interest status) ──
   let grossMonthly    = 0;
@@ -1567,7 +1569,12 @@ function computeMetrics() {
   let netMonthly      = 0;
 
   for (const c of monthly) {
-    if (c.currentMonthInterestPaid) {
+    const hasPaymentThisMonth = (c.payments || []).some(p => 
+      p.date && p.date.startsWith(currentMonthPrefix) && (p.type === 'interest' || p.type === 'Interest') && (p.status === 'Paid' || !p.status || p.status.toLowerCase() === 'paid')
+    );
+    const countsAsPaid = c.currentMonthInterestPaid && (!isFirstOfMonth || hasPaymentThisMonth);
+
+    if (countsAsPaid) {
       const currentMonthIdx = getCurrentMonthIndex(c);
       const activeP = getActivePrincipalForMonth(c, currentMonthIdx);
       grossMonthly    += (activeP * MONTHLY_CUSTOMER_RATE) / 100;
@@ -1583,8 +1590,6 @@ function computeMetrics() {
   let rawInvestorDaily = 0;
   let rawAgentDaily    = 0;
   let rawNetDaily      = 0;
-
-  const currentMonthPrefix = getLocalToday().slice(0, 7);
 
   for (const c of daily) {
     const { rate: dRate, invPayout: dInv, agentPayout: dAgent } = getDailyRates(c);
@@ -2552,6 +2557,7 @@ function downloadMonthlyPerformanceStatement() {
 
   let totalRealizedProfit = 0;
   let totalPendingPayments = 0;
+  let totalExpected30D = 0;
   const activeBreakdown = [];
 
   const activeCustomers = state.customers
@@ -2566,6 +2572,7 @@ function downloadMonthlyPerformanceStatement() {
 
     let ownerCollected = 0;
     let ownerPending = 0;
+    let expected30D = 0;
 
     if (fromVal <= toVal) {
       const collectedInMonth = (c.payments || [])
@@ -2586,6 +2593,7 @@ function downloadMonthlyPerformanceStatement() {
           .reduce((s, p) => s + (Number(p.amount) || 0), 0);
 
         ownerPending = Math.max(0, accrued - totalPaid) * ownerFraction;
+        expected30D = ownerDailyRate * 30;
       } else {
         const rate = MONTHLY_CUSTOMER_RATE - INVESTOR_RATE - (c.hasAgent ? AGENT_COMMISSION_RATE : 0);
         const ownerFraction = rate / MONTHLY_CUSTOMER_RATE;
@@ -2598,17 +2606,20 @@ function downloadMonthlyPerformanceStatement() {
           .reduce((s, p) => s + (Number(p.amount) || 0), 0);
 
         ownerPending = Math.max(0, accrued - totalPaid) * ownerFraction;
+        expected30D = (Number(c.principal) * rate) / 100;
       }
     }
 
     totalRealizedProfit += ownerCollected;
     totalPendingPayments += Math.max(0, ownerPending);
+    totalExpected30D += expected30D;
 
     activeBreakdown.push({
       name: c.name || 'Unknown',
       type: c.loanType === 'daily' ? 'Daily' : 'Monthly',
       collected: ownerCollected,
-      remaining: ownerPending
+      remaining: ownerPending,
+      expected30D: expected30D
     });
   }
 
@@ -2636,32 +2647,42 @@ function downloadMonthlyPerformanceStatement() {
   doc.setFontSize(8);
   doc.text(`Generated on: ${new Date().toLocaleString('en-IN')}`, 105, 36, { align: "center" });
 
-  // 2. Summary Box
+  // 2. Summary Box (3 columns)
   let y = 50;
   doc.setFillColor(248, 250, 252); // slate-50
   doc.setDrawColor(226, 232, 240); // slate-200
   doc.rect(15, y, 180, 26, 'FD');
 
-  // Vert line in box
-  doc.line(105, y, 105, y + 26);
+  // Vertical lines in box
+  doc.line(75, y, 75, y + 26);
+  doc.line(135, y, 135, y + 26);
 
   // Left KPI: Total Realized Profit
   doc.setTextColor(100, 116, 139); // slate-500
-  doc.setFontSize(8.5);
+  doc.setFontSize(7.5);
   doc.setFont("helvetica", "bold");
-  doc.text("TOTAL REALIZED PROFIT (COLLECTED)", 20, y + 8);
+  doc.text("TOTAL REALIZED (COLLECTED)", 17, y + 8);
   doc.setTextColor(4, 120, 87); // emerald-700
-  doc.setFontSize(14);
-  doc.text(formatPdfVal(totalRealizedProfit), 20, y + 18);
+  doc.setFontSize(12);
+  doc.text(formatPdfVal(totalRealizedProfit), 17, y + 18);
 
-  // Right KPI: Total Pending Payments
+  // Middle KPI: Total Pending Payments
   doc.setTextColor(100, 116, 139); // slate-500
-  doc.setFontSize(8.5);
+  doc.setFontSize(7.5);
   doc.setFont("helvetica", "bold");
-  doc.text("TOTAL PENDING PAYMENTS (UNPAID)", 110, y + 8);
+  doc.text("TOTAL PENDING (UNPAID)", 77, y + 8);
   doc.setTextColor(185, 28, 28); // rose-700
-  doc.setFontSize(14);
-  doc.text(formatPdfVal(totalPendingPayments), 110, y + 18);
+  doc.setFontSize(12);
+  doc.text(formatPdfVal(totalPendingPayments), 77, y + 18);
+
+  // Right KPI: Next 30 Days Expected Dynamic Profit
+  doc.setTextColor(100, 116, 139); // slate-500
+  doc.setFontSize(7);
+  doc.setFont("helvetica", "bold");
+  doc.text("EXPECTED 30D YIELD", 137, y + 8);
+  doc.setTextColor(217, 119, 6); // amber-600
+  doc.setFontSize(12);
+  doc.text(formatPdfVal(totalExpected30D), 137, y + 18);
 
   y += 38;
 
@@ -2681,9 +2702,10 @@ function downloadMonthlyPerformanceStatement() {
   doc.setFontSize(9);
   doc.setFont("helvetica", "bold");
   doc.text("CUSTOMER NAME", 18, y + 5.5);
-  doc.text("LOAN TYPE", 75, y + 5.5);
-  doc.text("OWNER PROFIT", 110, y + 5.5);
-  doc.text("PENDING OWNER PROFIT", 160, y + 5.5);
+  doc.text("LOAN TYPE", 65, y + 5.5);
+  doc.text("OWNER PROFIT", 100, y + 5.5, { align: "right" });
+  doc.text("PENDING PROFIT", 145, y + 5.5, { align: "right" });
+  doc.text("EXPECTED 30D PROFIT", 195, y + 5.5, { align: "right" });
 
   y += 8;
 
@@ -2702,9 +2724,10 @@ function downloadMonthlyPerformanceStatement() {
       doc.setFont("helvetica", "bold");
       doc.setFontSize(9);
       doc.text("CUSTOMER NAME", 18, y + 5.5);
-      doc.text("LOAN TYPE", 75, y + 5.5);
-      doc.text("OWNER PROFIT", 110, y + 5.5);
-      doc.text("PENDING OWNER PROFIT", 160, y + 5.5);
+      doc.text("LOAN TYPE", 65, y + 5.5);
+      doc.text("OWNER PROFIT", 100, y + 5.5, { align: "right" });
+      doc.text("PENDING PROFIT", 145, y + 5.5, { align: "right" });
+      doc.text("EXPECTED 30D PROFIT", 195, y + 5.5, { align: "right" });
       
       y += 8;
       doc.setFont("helvetica", "normal");
@@ -2712,11 +2735,12 @@ function downloadMonthlyPerformanceStatement() {
 
     doc.setFontSize(8.5);
     // Draw row values
-    const wrappedName = doc.splitTextToSize(item.name, 52);
+    const wrappedName = doc.splitTextToSize(item.name, 45);
     doc.text(wrappedName, 18, y + 5);
-    doc.text(item.type, 75, y + 5);
-    doc.text(formatPdfVal(item.collected), 110, y + 5);
-    doc.text(formatPdfVal(item.remaining), 160, y + 5);
+    doc.text(item.type, 65, y + 5);
+    doc.text(formatPdfVal(item.collected), 100, y + 5, { align: "right" });
+    doc.text(formatPdfVal(item.remaining), 145, y + 5, { align: "right" });
+    doc.text(formatPdfVal(item.expected30D), 195, y + 5, { align: "right" });
 
     // Row underline
     const lines = wrappedName.length;
@@ -2742,6 +2766,7 @@ function downloadMonthlyInterestPortfolioStatement() {
 
   let totalMonthlyRealizedProfit = 0;
   let totalMonthlyPendingPayments = 0;
+  let totalExpected30D = 0;
   const listData = [];
   const currentMonthPrefix = today.slice(0, 7);
 
@@ -2778,8 +2803,12 @@ function downloadMonthlyInterestPortfolioStatement() {
     const agentPendingShare = c.hasAgent ? (unpaid * (AGENT_COMMISSION_RATE / MONTHLY_CUSTOMER_RATE)) : 0;
     const NetOwnerPendingProfit = Number(unpaid) - Number(agentPendingShare) - Number(investorPendingShare);
 
+    const rate = MONTHLY_CUSTOMER_RATE - INVESTOR_RATE - (c.hasAgent ? AGENT_COMMISSION_RATE : 0);
+    const expected30D = (Number(c.principal) * rate) / 100;
+
     totalMonthlyRealizedProfit += NetOwnerProfit;
     totalMonthlyPendingPayments += NetOwnerPendingProfit;
+    totalExpected30D += expected30D;
 
     listData.push({
       name: c.name || 'Unknown',
@@ -2790,7 +2819,8 @@ function downloadMonthlyInterestPortfolioStatement() {
       agentShare: agentShare,
       unpaid: unpaid,
       investorPendingShare: investorPendingShare,
-      agentPendingShare: agentPendingShare
+      agentPendingShare: agentPendingShare,
+      expected30D: expected30D
     });
   }
 
@@ -2816,32 +2846,42 @@ function downloadMonthlyInterestPortfolioStatement() {
   doc.setFontSize(8.5);
   doc.text(`Active Month: ${monthName} | Generated on: ${new Date().toLocaleString('en-IN')}`, 105, 33, { align: "center" });
 
-  // 2. Summary Box
+  // 2. Summary Box (3 columns)
   let y = 50;
   doc.setFillColor(248, 250, 252); // slate-50
   doc.setDrawColor(226, 232, 240); // slate-200
   doc.rect(15, y, 180, 26, 'FD');
 
-  // Vert line in box
-  doc.line(105, y, 105, y + 26);
+  // Vertical lines in box
+  doc.line(75, y, 75, y + 26);
+  doc.line(135, y, 135, y + 26);
 
   // Left KPI: Monthly Realized Profit (Net Owner Profit)
   doc.setTextColor(100, 116, 139); // slate-500
-  doc.setFontSize(8.5);
+  doc.setFontSize(7.5);
   doc.setFont("helvetica", "bold");
-  doc.text("MONTHLY REALIZED OWNER PROFIT", 20, y + 8);
+  doc.text("MONTHLY REALIZED OWNER PROFIT", 17, y + 8);
   doc.setTextColor(4, 120, 87); // emerald-700
-  doc.setFontSize(14);
-  doc.text(formatPdfVal(totalMonthlyRealizedProfit), 20, y + 18);
+  doc.setFontSize(12);
+  doc.text(formatPdfVal(totalMonthlyRealizedProfit), 17, y + 18);
 
-  // Right KPI: Monthly Pending Owner Profit
+  // Middle KPI: Monthly Pending Owner Profit
   doc.setTextColor(100, 116, 139); // slate-500
-  doc.setFontSize(8.5);
+  doc.setFontSize(7.5);
   doc.setFont("helvetica", "bold");
-  doc.text("MONTHLY PENDING OWNER PROFIT", 110, y + 8);
+  doc.text("MONTHLY PENDING OWNER PROFIT", 77, y + 8);
   doc.setTextColor(185, 28, 28); // rose-700
-  doc.setFontSize(14);
-  doc.text(formatPdfVal(totalMonthlyPendingPayments), 110, y + 18);
+  doc.setFontSize(12);
+  doc.text(formatPdfVal(totalMonthlyPendingPayments), 77, y + 18);
+
+  // Right KPI: Next 30 Days Expected Dynamic Profit
+  doc.setTextColor(100, 116, 139); // slate-500
+  doc.setFontSize(7);
+  doc.setFont("helvetica", "bold");
+  doc.text("EXPECTED 30D YIELD", 137, y + 8);
+  doc.setTextColor(217, 119, 6); // amber-600
+  doc.setFontSize(12);
+  doc.text(formatPdfVal(totalExpected30D), 137, y + 18);
 
   y += 38;
 
@@ -2861,10 +2901,11 @@ function downloadMonthlyInterestPortfolioStatement() {
   doc.setFontSize(9);
   doc.setFont("helvetica", "bold");
   doc.text("MONTHLY CUSTOMERS", 18, y + 5.5);
-  doc.text("ADAGU ID", 75, y + 5.5);
-  doc.text("PRINCIPAL (RS.)", 120, y + 5.5, { align: "right" });
-  doc.text("OWNER PROFIT", 155, y + 5.5, { align: "right" });
-  doc.text("PENDING OWNER PROFIT", 195, y + 5.5, { align: "right" });
+  doc.text("ADAGU ID", 55, y + 5.5);
+  doc.text("PRINCIPAL (RS.)", 88, y + 5.5, { align: "right" });
+  doc.text("OWNER PROFIT", 120, y + 5.5, { align: "right" });
+  doc.text("PENDING PROFIT", 155, y + 5.5, { align: "right" });
+  doc.text("EXPECTED 30D PROFIT", 195, y + 5.5, { align: "right" });
 
   y += 8;
 
@@ -2887,32 +2928,35 @@ function downloadMonthlyInterestPortfolioStatement() {
         doc.setFont("helvetica", "bold");
         doc.setFontSize(9);
         doc.text("MONTHLY CUSTOMERS", 18, y + 5.5);
-        doc.text("ADAGU ID", 75, y + 5.5);
-        doc.text("PRINCIPAL (RS.)", 120, y + 5.5, { align: "right" });
-        doc.text("OWNER PROFIT", 155, y + 5.5, { align: "right" });
-        doc.text("PENDING OWNER PROFIT", 195, y + 5.5, { align: "right" });
+        doc.text("ADAGU ID", 55, y + 5.5);
+        doc.text("PRINCIPAL (RS.)", 88, y + 5.5, { align: "right" });
+        doc.text("OWNER PROFIT", 120, y + 5.5, { align: "right" });
+        doc.text("PENDING PROFIT", 155, y + 5.5, { align: "right" });
+        doc.text("EXPECTED 30D PROFIT", 195, y + 5.5, { align: "right" });
 
         y += 8;
         doc.setFont("helvetica", "normal");
       }
 
       doc.setFontSize(8.5);
-      const wrappedName = doc.splitTextToSize(row.name, 50);
+      const wrappedName = doc.splitTextToSize(row.name, 35);
       doc.text(wrappedName, 18, y + 5);
-      doc.text(`#${row.adaguId}`, 75, y + 5);
-      doc.text(row.principal.toLocaleString('en-IN'), 120, y + 5, { align: "right" });
+      doc.text(`#${row.adaguId}`, 55, y + 5);
+      doc.text(row.principal.toLocaleString('en-IN'), 88, y + 5, { align: "right" });
 
       const NetOwnerProfit = Number(row.collectedInterest) - Number(row.agentShare || 0) - Number(row.investorShare || 0);
-      doc.text(formatPdfVal(NetOwnerProfit), 155, y + 5, { align: "right" });
+      doc.text(formatPdfVal(NetOwnerProfit), 120, y + 5, { align: "right" });
 
       const NetOwnerPendingProfit = Number(row.unpaid) - Number(row.agentPendingShare || 0) - Number(row.investorPendingShare || 0);
       if (NetOwnerPendingProfit > 0) {
         doc.setFont("helvetica", "bold");
         doc.setTextColor(185, 28, 28); // rose-700
       }
-      doc.text(formatPdfVal(NetOwnerPendingProfit), 195, y + 5, { align: "right" });
+      doc.text(formatPdfVal(NetOwnerPendingProfit), 155, y + 5, { align: "right" });
       doc.setTextColor(51, 51, 51);
       doc.setFont("helvetica", "normal");
+
+      doc.text(formatPdfVal(row.expected30D), 195, y + 5, { align: "right" });
 
       const lines = wrappedName.length;
       const rowHeight = Math.max(8, lines * 4);
@@ -2938,6 +2982,7 @@ function downloadDailyInterestPortfolioStatement() {
 
   let totalDailyRealizedProfit = 0;
   let totalDailyPendingPayments = 0;
+  let totalDailyExpectedProfit = 0;
   const listData = [];
   const currentMonthPrefix = today.slice(0, 7);
 
@@ -2970,16 +3015,19 @@ function downloadDailyInterestPortfolioStatement() {
     const ownerCollected = collectedInMonth * ownerFraction;
     const totalAmountPaidThisMonth = ownerCollected;
     const dynamicPending = Math.max(0, totalAccrued - totalAmountPaidThisMonth);
+    const expected30D = ownerDailyRate * 30;
 
     totalDailyRealizedProfit += ownerCollected;
     totalDailyPendingPayments += dynamicPending;
+    totalDailyExpectedProfit += expected30D;
 
     listData.push({
       name: c.name || 'Unknown',
       adaguId: c.adaguId || '—',
       principal: Number(c.principal) || 0,
       collected: ownerCollected,
-      remaining: dynamicPending
+      remaining: dynamicPending,
+      expected30D: expected30D
     });
   }
 
@@ -3005,32 +3053,42 @@ function downloadDailyInterestPortfolioStatement() {
   doc.setFontSize(8.5);
   doc.text(`Generated on: ${new Date().toLocaleString('en-IN')}`, 105, 34, { align: "center" });
 
-  // 2. Summary Box
+  // 2. Summary Box (3 columns)
   let y = 50;
   doc.setFillColor(248, 250, 252); // slate-50
   doc.setDrawColor(226, 232, 240); // slate-200
   doc.rect(15, y, 180, 26, 'FD');
 
-  // Vert line in box
-  doc.line(105, y, 105, y + 26);
+  // Vertical lines in box
+  doc.line(75, y, 75, y + 26);
+  doc.line(135, y, 135, y + 26);
 
   // Left KPI: Total Realized Profit (Collected)
   doc.setTextColor(100, 116, 139); // slate-500
-  doc.setFontSize(8.5);
+  doc.setFontSize(7.5);
   doc.setFont("helvetica", "bold");
-  doc.text("TOTAL REALIZED PROFIT (COLLECTED)", 20, y + 8);
+  doc.text("TOTAL REALIZED (COLLECTED)", 17, y + 8);
   doc.setTextColor(4, 120, 87); // emerald-700
-  doc.setFontSize(14);
-  doc.text(formatPdfVal(totalDailyRealizedProfit), 20, y + 18);
+  doc.setFontSize(12);
+  doc.text(formatPdfVal(totalDailyRealizedProfit), 17, y + 18);
 
-  // Right KPI: Total Pending Payments (Unpaid)
+  // Middle KPI: Total Pending Payments (Unpaid)
   doc.setTextColor(100, 116, 139); // slate-500
-  doc.setFontSize(8.5);
+  doc.setFontSize(7.5);
   doc.setFont("helvetica", "bold");
-  doc.text("TOTAL PENDING PAYMENTS (UNPAID)", 110, y + 8);
+  doc.text("TOTAL PENDING (UNPAID)", 77, y + 8);
   doc.setTextColor(185, 28, 28); // rose-700
-  doc.setFontSize(14);
-  doc.text(formatPdfVal(totalDailyPendingPayments), 110, y + 18);
+  doc.setFontSize(12);
+  doc.text(formatPdfVal(totalDailyPendingPayments), 77, y + 18);
+
+  // Right KPI: Next 30 Days Expected Dynamic Profit
+  doc.setTextColor(100, 116, 139); // slate-500
+  doc.setFontSize(7);
+  doc.setFont("helvetica", "bold");
+  doc.text("EXPECTED 30D YIELD", 137, y + 8);
+  doc.setTextColor(217, 119, 6); // amber-600
+  doc.setFontSize(12);
+  doc.text(formatPdfVal(totalDailyExpectedProfit), 137, y + 18);
 
   y += 38;
 
@@ -3050,10 +3108,11 @@ function downloadDailyInterestPortfolioStatement() {
   doc.setFontSize(9);
   doc.setFont("helvetica", "bold");
   doc.text("CUSTOMER NAME", 18, y + 5.5);
-  doc.text("ADAGU ID", 75, y + 5.5);
-  doc.text("PRINCIPAL (RS.)", 120, y + 5.5, { align: "right" });
-  doc.text("OWNER PROFIT", 155, y + 5.5, { align: "right" });
-  doc.text("PENDING OWNER PROFIT", 195, y + 5.5, { align: "right" });
+  doc.text("ADAGU ID", 55, y + 5.5);
+  doc.text("PRINCIPAL (RS.)", 88, y + 5.5, { align: "right" });
+  doc.text("OWNER PROFIT", 120, y + 5.5, { align: "right" });
+  doc.text("PENDING PROFIT", 155, y + 5.5, { align: "right" });
+  doc.text("EXPECTED 30D PROFIT", 195, y + 5.5, { align: "right" });
 
   y += 8;
 
@@ -3076,29 +3135,32 @@ function downloadDailyInterestPortfolioStatement() {
         doc.setFont("helvetica", "bold");
         doc.setFontSize(9);
         doc.text("CUSTOMER NAME", 18, y + 5.5);
-        doc.text("ADAGU ID", 75, y + 5.5);
-        doc.text("PRINCIPAL (RS.)", 120, y + 5.5, { align: "right" });
-        doc.text("OWNER PROFIT", 155, y + 5.5, { align: "right" });
-        doc.text("PENDING OWNER PROFIT", 195, y + 5.5, { align: "right" });
+        doc.text("ADAGU ID", 55, y + 5.5);
+        doc.text("PRINCIPAL (RS.)", 88, y + 5.5, { align: "right" });
+        doc.text("OWNER PROFIT", 120, y + 5.5, { align: "right" });
+        doc.text("PENDING PROFIT", 155, y + 5.5, { align: "right" });
+        doc.text("EXPECTED 30D PROFIT", 195, y + 5.5, { align: "right" });
 
         y += 8;
         doc.setFont("helvetica", "normal");
       }
 
       doc.setFontSize(8.5);
-      const wrappedName = doc.splitTextToSize(row.name, 50);
+      const wrappedName = doc.splitTextToSize(row.name, 35);
       doc.text(wrappedName, 18, y + 5);
-      doc.text(`#${row.adaguId}`, 75, y + 5);
-      doc.text(row.principal.toLocaleString('en-IN'), 120, y + 5, { align: "right" });
-      doc.text(formatPdfVal(row.collected), 155, y + 5, { align: "right" });
+      doc.text(`#${row.adaguId}`, 55, y + 5);
+      doc.text(row.principal.toLocaleString('en-IN'), 88, y + 5, { align: "right" });
+      doc.text(formatPdfVal(row.collected), 120, y + 5, { align: "right" });
 
       if (row.remaining > 0) {
         doc.setFont("helvetica", "bold");
         doc.setTextColor(185, 28, 28); // rose-700
       }
-      doc.text(formatPdfVal(row.remaining), 195, y + 5, { align: "right" });
+      doc.text(formatPdfVal(row.remaining), 155, y + 5, { align: "right" });
       doc.setTextColor(51, 51, 51);
       doc.setFont("helvetica", "normal");
+
+      doc.text(formatPdfVal(row.expected30D), 195, y + 5, { align: "right" });
 
       const lines = wrappedName.length;
       const rowHeight = Math.max(8, lines * 4);
