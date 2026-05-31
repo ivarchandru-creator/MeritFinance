@@ -3003,21 +3003,22 @@ function downloadDailyInterestPortfolioStatement() {
       }
     }
 
-    // Unpaid Due (remaining due)
+    // Accrued and Paid calculations
     const startD = c.startDate || c.createdAt?.slice(0, 10) || today;
     const endD = c.status === 'closed' ? (c.endDate || today) : today;
     const daysActive = daysBetweenInclusive(startD, endD);
-    const dailyRate = Number(c.dailyRate) || 0;
-    const accrued = daysActive * dailyRate;
+    const { rate: dRate, invPayout: dInv, agentPayout: dAgent } = getDailyRates(c);
+    const ownerDailyRate = Math.max(0, dRate - dInv - dAgent);
+    const totalOwnerProfit = daysActive * ownerDailyRate;
 
     const totalPaid = (c.payments || [])
       .filter(p => (p.type === 'interest' || p.type === 'Interest') && (p.status === 'Paid' || !p.status || p.status.toLowerCase() === 'paid'))
       .reduce((s, p) => s + (Number(p.amount) || 0), 0);
 
-    const remainingDue = Math.max(0, accrued - totalPaid);
+    const remainingDue = totalPaid - totalOwnerProfit;
 
     totalDailyRealizedProfit += collectedInMonth;
-    totalDailyPendingPayments += remainingDue;
+    totalDailyPendingPayments += Math.max(0, totalOwnerProfit - totalPaid);
 
     listData.push({
       name: c.name || 'Unknown',
