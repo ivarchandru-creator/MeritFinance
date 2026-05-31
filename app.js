@@ -3516,29 +3516,19 @@ function downloadDailyInterestMonthReport(monthName, startDate, endDate) {
     // Accrued and Paid calculations up to the end of this historical month
     const startD = c.startDate || c.createdAt?.slice(0, 10) || endDate;
     const toVal = (c.status === 'closed' && c.endDate && c.endDate < endDate) ? c.endDate : endDate;
-    const daysActive = daysBetweenInclusive(startD, toVal);
+    const activeStart = (startD > startDate) ? startD : startDate;
+    const daysActive = daysBetweenInclusive(activeStart, toVal);
     const { rate: dRate, invPayout: dInv, agentPayout: dAgent } = getDailyRates(c);
     const ownerDailyRate = Math.max(0, dRate - dInv - dAgent);
     const totalAccrued = daysActive * ownerDailyRate;
     const ownerFraction = dRate > 0 ? (ownerDailyRate / dRate) : 0;
 
     const ownerCollected = collectedInMonth * ownerFraction;
-    
-    // Sum of all payments up to the end of the historical month
-    const totalPaidUpToMonthEnd = (c.payments || [])
-      .filter(p => (p.type === 'interest' || p.type === 'Interest') && p.date <= toVal && (p.status === 'Paid' || !p.status || p.status.toLowerCase() === 'paid'))
-      .reduce((sum, p) => sum + (Number(p.amount) || 0), 0) * ownerFraction;
-      
-    const dynamicPending = Math.max(0, totalAccrued - totalPaidUpToMonthEnd);
-    
-    // Dynamic Expected Yield Formula (Based on Selected Loan Days Only)
-    const endDForContract = c.endDate || toVal;
-    const totalContractDays = Math.ceil((new Date(endDForContract) - new Date(startD)) / (1000 * 60 * 60 * 24)) + 1;
-    const dynamicExpectedYield = totalContractDays * ownerDailyRate;
+    const dynamicPending = Math.max(0, totalAccrued - ownerCollected);
 
     totalDailyRealizedProfit += ownerCollected;
     totalDailyPendingPayments += dynamicPending;
-    totalDailyExpectedProfit += dynamicExpectedYield;
+    totalDailyExpectedProfit += totalAccrued;
 
     listData.push({
       name: c.name || 'Unknown',
@@ -3546,7 +3536,7 @@ function downloadDailyInterestMonthReport(monthName, startDate, endDate) {
       principal: Number(c.principal) || 0,
       collected: ownerCollected,
       remaining: dynamicPending,
-      expected30D: dynamicExpectedYield
+      expected30D: totalAccrued
     });
   }
 
@@ -4219,71 +4209,54 @@ function renderDetailPanel() {
     </div>
   ` : '';
 
-  const remainingPrincipal = Math.max(0, p - (c.paidPrincipal || 0));
-  const loanStartDate = c.startDate || c.createdAt?.slice(0, 10) || getLocalToday();
-  const activeDays = Math.max(1, Math.ceil((new Date() - new Date(loanStartDate)) / (1000 * 60 * 60 * 24)));
-
-  let Top_Panel_Interest = 0;
-  let Top_Panel_Owner_Share = 0;
-  let agentSharePerDay = 0;
-  let investorSharePerDay = 0;
-
-  if (c.loanType === 'monthly') {
-    const interestRatePercent = Number(c.interestRatePercent || 3);
-    agentSharePerDay = c.hasAgent ? ((remainingPrincipal * (Number(c.agentCommissionRate || AGENT_COMMISSION_RATE) / 100)) / 30) : 0;
-    investorSharePerDay = (remainingPrincipal * (INVESTOR_RATE / 100)) / 30;
-    Top_Panel_Interest = (remainingPrincipal * (interestRatePercent / 100) / 30) * activeDays;
-    Top_Panel_Owner_Share = Top_Panel_Interest - (agentSharePerDay * activeDays);
-  } else {
-    const { rate: dRate, invPayout: dInv, agentPayout: dAgent, ownerDailyRate } = getDailyRates(c);
-    agentSharePerDay = dAgent;
-    investorSharePerDay = dInv;
-    Top_Panel_Interest = dRate * activeDays;
-    Top_Panel_Owner_Share = ownerDailyRate * activeDays;
-  }
-
-  const interestPaid = getCustomerPaidInterest(c);
-  const principalPaid = getCustomerPaidPrincipal(c);
-  const remainingP = Math.max(0, p - principalPaid);
-  const pendingProfit = Top_Panel_Interest - interestPaid;
-  const remainingTotal = remainingP + pendingProfit;
-
-  let ownerFraction = 0;
-  if (c.loanType === 'monthly') {
-    const rate = MONTHLY_CUSTOMER_RATE - INVESTOR_RATE - (c.hasAgent ? AGENT_COMMISSION_RATE : 0);
-    ownerFraction = rate / MONTHLY_CUSTOMER_RATE;
-  } else {
-    const { rate: dRate, ownerDailyRate } = getDailyRates(c);
-    ownerFraction = dRate > 0 ? (ownerDailyRate / dRate) : 0;
-  }
-  const roundedRealizedOwnerProfit = Math.round(interestPaid * ownerFraction);
-
-  // ── profit-split section with dynamic accrued tenure yield ──
+  // ── MONTHLY: profit-split section with fixed arbitrage splits ──
   const profitSplit = c.loanType === 'monthly' ? (() => {
+    const currentMonthIdx = getCurrentMonthIndex(c);
+    const activeP = getActivePrincipalForMonth(c, currentMonthIdx);
+    const grossVal = (activeP * MONTHLY_CUSTOMER_RATE) / 100;
+    const invCostVal = (activeP * INVESTOR_RATE) / 100;
+    const agCommVal = c.hasAgent ? (activeP * AGENT_COMMISSION_RATE) / 100 : 0;
+    const ownProfVal = grossVal - invCostVal - agCommVal;
+
     return `
     <div class="detail-section">
       <div class="detail-section-title">${t('profit_split_monthly')}</div>
       <div class="profit-breakdown">
         <div class="profit-row gross">
-          <span class="profit-row-label">${state.lang === 'ta' ? 'மொத்த வட்டி (செயலில் உள்ள நாட்கள்)' : 'Monthly Interest (Accrued)'} (${activeDays} ${t('days_suffix')})</span>
-          <span class="profit-row-amount">${fmt(Top_Panel_Interest)}</span>
+          <span class="profit-row-label">${t('gross_interest')} (3%)</span>
+          <span class="profit-row-amount">${fmt(grossVal)}</span>
         </div>
         <div class="profit-row deduct">
-          <span class="profit-row-label">${t('investor_cost')} (₹${(investorSharePerDay * 30).toFixed(0)}/mo)</span>
-          <span class="profit-row-amount">−${fmt(investorSharePerDay * activeDays)}</span>
+          <span class="profit-row-label">${t('investor_cost')} (66.7%)</span>
+          <span class="profit-row-amount">−${fmt(invCostVal)}</span>
         </div>
         ${c.hasAgent ? `
         <div class="profit-row deduct-agent">
-          <span class="profit-row-label">${t('th_agent')}: ${escHtml(c.agentName)} (₹${(agentSharePerDay * 30).toFixed(0)}/mo)</span>
-          <span class="profit-row-amount">−${fmt(agentSharePerDay * activeDays)}</span>
+          <span class="profit-row-label">${t('th_agent')}: ${escHtml(c.agentName)} (16.7%)</span>
+          <span class="profit-row-amount">−${fmt(agCommVal)}</span>
         </div>` : ''}
         <div class="profit-row net">
-          <span class="profit-row-label">${t('owner_profit_label')}</span>
-          <span class="profit-row-amount">${fmt(Top_Panel_Owner_Share - (investorSharePerDay * activeDays))}</span>
+          <span class="profit-row-label">${t('owner_profit_label')} (${c.hasAgent ? '16.7%' : '33.3%'})</span>
+          <span class="profit-row-amount">${fmt(ownProfVal)}</span>
         </div>
       </div>
     </div>`;
   })() : (() => {
+    // ── DAILY: dynamic profit-split calculator ──
+    const method = c.dailyMethod || 'split';
+    const today  = getLocalToday();
+    
+    // --- FORCE-FIX RULE 1: DYNAMIC ELAPSED DAYS CALCULATOR (Inclusive) ---
+    const startD = c.startDate || c.createdAt?.slice(0, 10) || getLocalToday();
+    const endD = c.endDate || getLocalToday();
+    
+    // For the primary top block, calculate the total expected profit for the FULL tenure:
+    const tenureEndDate = c.endDate || endD;
+    const totalTenureDays = daysBetweenInclusive(startD, tenureEndDate);
+    const dmExpected = getDailyAccruedMetricsForRange(c, startD, tenureEndDate);
+
+    const { rate: grossDailyInterest, invPayout: dayInv, agentPayout: dayAgent, ownerDailyRate: currentOwnerRate } = getDailyRates(c);
+
     return `
     <div class="detail-section">
       <div class="detail-section-title">
@@ -4291,36 +4264,46 @@ function renderDetailPanel() {
       </div>
       <div class="profit-breakdown" id="dmBreakdown">
         <div class="profit-row gross">
-          <span class="profit-row-label">${state.lang === 'ta' ? 'மொத்த வட்டி (செயலில் உள்ள நாட்கள்)' : 'Gross Interest (Active tenure)'} (${activeDays} ${t('days_suffix')})</span>
-          <span class="profit-row-amount">${fmt(Top_Panel_Interest)}</span>
+          <span class="profit-row-label">${state.lang === 'ta' ? 'மொத்த வட்டி (முழு காலம்)' : 'Gross Interest (Full Tenure)'} (${totalTenureDays} ${t('days_suffix')})</span>
+          <span class="profit-row-amount">${fmt(dmExpected.gross)}</span>
         </div>
         <div class="profit-row deduct">
           <span class="profit-row-label">
-            ${state.lang === 'ta' ? 'முதலீட்டாளர் பங்கு' : 'Investor Share'} (₹${investorSharePerDay}/day)
+            ${state.lang === 'ta' ? 'முதலீட்டாளர் பங்கு' : 'Investor Share'} (₹${dayInv}/day)
           </span>
-          <span class="profit-row-amount">−${fmt(investorSharePerDay * activeDays)}</span>
+          <span class="profit-row-amount">−${fmt(dmExpected.investorCost)}</span>
         </div>
-        ${agentSharePerDay > 0 || c.hasAgent ? `
+        ${dayAgent > 0 || c.hasAgent ? `
         <div class="profit-row deduct-agent">
           <span class="profit-row-label">
-            ${state.lang === 'ta' ? 'முகவர் பங்கு' : 'Agent Share'} (₹${agentSharePerDay}/day)
+            ${state.lang === 'ta' ? 'முகவர் பங்கு' : 'Agent Share'} (₹${dayAgent}/day)
           </span>
-          <span class="profit-row-amount">−${fmt(agentSharePerDay * activeDays)}</span>
+          <span class="profit-row-amount">−${fmt(dmExpected.agentPay)}</span>
         </div>` : ''}
         <div class="profit-row net">
           <span class="profit-row-label" style="font-weight:800">
-            ${state.lang === 'ta' ? 'உரிமையாளர் பங்கு' : 'Owner Share'} (₹${(Top_Panel_Owner_Share / activeDays).toFixed(2)}/day)
+            ${state.lang === 'ta' ? 'உரிமையாளர் பங்கு' : 'Owner Share'} (₹${currentOwnerRate.toFixed(2)}/day)
           </span>
-          <span class="profit-row-amount" style="font-weight:800">${fmt(Top_Panel_Owner_Share)}</span>
+          <span class="profit-row-amount" style="font-weight:800">${fmt(dmExpected.ownerNet)}</span>
         </div>
       </div>
     </div>`;
   })();
 
+
+  const interestAccrued = Math.round(getAccruedInterest(c));
+  const remaining = getRemainingBalance(c);
+
   let paymentLedgerHtml = '';
   if (c.loanType === 'monthly') {
     ensureCustomerPaymentsInitialized(c);
     const isPaid = !!c.currentMonthInterestPaid;
+    const rate = MONTHLY_CUSTOMER_RATE - INVESTOR_RATE - (c.hasAgent ? AGENT_COMMISSION_RATE : 0);
+    const ownerFraction = rate / MONTHLY_CUSTOMER_RATE;
+    const remainingP = Math.max(0, p - (c.paidPrincipal || 0));
+    const remainingI = (interestAccrued - (c.paidInterest || 0)) * ownerFraction;
+    const remainingTotal = remainingP + remainingI;
+
     const langIsTA = state.lang === 'ta';
     const currentMonthHtml = `
       <div class="detail-section" style="margin-top:14px">
@@ -4404,14 +4387,14 @@ function renderDetailPanel() {
 
           <!-- Interest Collected Card -->
           <div class="fintech-card card-interest-collected">
-            <span class="fintech-card-label">${langIsTA ? 'வசூலிக்கப்பட்ட வட்டி' : 'AMOUNT RECEIVED / COLLECTED'}</span>
-            <span class="fintech-card-value">${fmt(interestPaid)}</span>
+            <span class="fintech-card-label">${langIsTA ? 'வசூலிக்கப்பட்ட வட்டி' : 'INTEREST COLLECTED'}</span>
+            <span class="fintech-card-value">${fmt(c.paidInterest || 0)}</span>
           </div>
 
           <!-- Pending Interest Card -->
           <div class="fintech-card card-pending-interest">
             <span class="fintech-card-label">${langIsTA ? 'உரிமையாளர் வட்டி நிலுவை' : 'PENDING OWNER PROFIT'}</span>
-            <span class="fintech-card-value" id="valRemainingInterestDue" data-base-value="${pendingProfit}" data-owner-fraction="1">${pendingProfit >= 0 ? '+' : ''}${fmt(pendingProfit)}</span>
+            <span class="fintech-card-value" id="valRemainingInterestDue" data-base-value="${remainingI}" data-owner-fraction="${ownerFraction}">${remainingI >= 0 ? '+' : ''}${fmt(remainingI)}</span>
           </div>
 
           <!-- Total Outstanding Card (Full-Width Span) -->
@@ -4419,12 +4402,6 @@ function renderDetailPanel() {
             <span class="fintech-card-label">${langIsTA ? 'நிலுவை தொகை' : 'TOTAL OUTSTANDING'}</span>
             <span class="fintech-card-value">${fmt(remainingTotal)}</span>
           </div>
-        </div>
-        
-        <!-- Realized Owner Profit Cumulative Tracker -->
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-top:12px;padding:12px;background:rgba(16,185,129,0.05);border:1px solid rgba(16,185,129,0.15);border-radius:12px;font-size:13px;font-weight:700">
-          <span style="color:var(--emerald-400)">${langIsTA ? 'மொத்த உரிமையாளர் லாபம்' : 'Total Realized Owner Profit'}</span>
-          <span style="color:var(--emerald-400);font-size:15px;font-weight:800" id="realizedOwnerProfit">₹${roundedRealizedOwnerProfit.toLocaleString('en-IN')}</span>
         </div>
       </div>
     `;
@@ -4438,8 +4415,22 @@ function renderDetailPanel() {
   } else {
     ensureCustomerPaymentsInitialized(c);
     const langIsTA = state.lang === 'ta';
+    
+    // --- FORCE-FIX RULE 1: DYNAMIC ELAPSED DAYS CALCULATOR (Inclusive) ---
+    const startD = c.startDate || c.createdAt?.slice(0, 10) || getLocalToday();
+    const endD = c.endDate || getLocalToday();
+    
+    // Forcefully calculate the exact total number of active days elapsed (inclusive calculation)
+    let elapsedDays = daysBetweenInclusive(startD, endD);
+    
+    // --- FORCE-FIX RULE 2: ENFORCE THE CORRECT BASE VALUES ---
+    const customDailyRate = Number(c.dailyRate) || 0;
+    const totalAccruedInterest = elapsedDays * customDailyRate;
+    const totalInterestDue = totalAccruedInterest;
+
+    const activeDates = getDailyActiveDates(c);
     const isTodayPaid = (c.dailyPaidDates || []).includes(getLocalToday());
-    const todayInterestVal = Number(c.dailyRate) || 0;
+    const todayInterestVal = customDailyRate;
     
     const todayInterestHtml = `
       <div class="detail-section" style="margin-top:14px">
@@ -4485,7 +4476,23 @@ function renderDetailPanel() {
       </div>
     `;
 
-    const pendingSign = pendingProfit < 0 ? '' : '+';
+    const parsedPrincipal = Number(p) || 0;
+    const interestPaid = getCustomerPaidInterest(c);
+    const principalPaid = getCustomerPaidPrincipal(c);
+    const remainingP = Math.max(0, parsedPrincipal - principalPaid);
+    
+    const { rate, ownerDailyRate } = getDailyRates(c);
+    const ownerFraction = rate > 0 ? (ownerDailyRate / rate) : 0;
+    
+    const remainingInterestDue = (customDailyRate * elapsedDays - interestPaid) * ownerFraction;
+    const remainingTotal = remainingP + remainingInterestDue;
+
+    const realizedOwnerProfit = (c.payments || [])
+      .filter(p => (p.type === 'interest' || p.type === 'Interest') && (p.status === 'Paid' || !p.status))
+      .reduce((sum, p) => sum + (p.amount * ownerFraction), 0);
+    const roundedRealizedOwnerProfit = Math.round(realizedOwnerProfit);
+
+    const pendingSign = remainingInterestDue < 0 ? '' : '+';
 
     const breakdownSectionHtml = `
       <div class="detail-section ledger-card" style="margin-top:14px">
@@ -4506,7 +4513,7 @@ function renderDetailPanel() {
           <!-- Pending Interest Card -->
           <div class="fintech-card card-pending-interest">
             <span class="fintech-card-label">${langIsTA ? 'உரிமையாளர் வட்டி நிலுவை' : 'PENDING OWNER PROFIT'}</span>
-            <span class="fintech-card-value" id="valRemainingInterestDue" data-base-value="${pendingProfit}" data-owner-fraction="1">${pendingSign}${fmt(pendingProfit)}</span>
+            <span class="fintech-card-value" id="valRemainingInterestDue" data-base-value="${remainingInterestDue}" data-owner-fraction="${ownerFraction}">${pendingSign}${fmt(remainingInterestDue)}</span>
           </div>
 
           <!-- Total Outstanding Card (Full-Width Span) -->
