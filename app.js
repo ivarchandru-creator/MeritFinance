@@ -948,22 +948,10 @@ function getActivePrincipalForMonth(c, monthIndex) {
   if (!c) return 0;
   const p = Number(c.principal) || 0;
   if (c.loanType !== 'monthly') return p;
-  if (monthIndex < 1) return p;
   
-  const startDate = c.startDate || c.createdAt?.slice(0, 10) || getLocalToday();
-  const daysToMonthStart = (monthIndex - 1) * 30;
-  const monthStartStr = addDays(startDate, daysToMonthStart);
-  
-  let paidBeforeMonth = 0;
-  ensureCustomerPaymentsInitialized(c);
-  
-  for (const pay of (c.payments || [])) {
-    if (pay.type === 'principal' && pay.date <= monthStartStr) {
-      paidBeforeMonth += Number(pay.amount) || 0;
-    }
-  }
-  
-  return Math.max(0, p - paidBeforeMonth);
+  // Return the remaining principal base: principal - total principal paid to date
+  const paid = getCustomerPaidPrincipal(c);
+  return Math.max(0, p - paid);
 }
 
 function getCurrentMonthIndex(c) {
@@ -1012,6 +1000,7 @@ function toggleCurrentMonthInterestPaid(customerId) {
   state.customers[idx] = {
     ...c,
     currentMonthInterestPaid: isPaid,
+    lastCheckedCycleIndex: currentMonthIdx,
     payments: updatedPayments,
     paidInterest,
     paidPrincipal
@@ -1029,6 +1018,28 @@ function toggleCustomerInterestStatus(customerId) {
     toggleCurrentMonthInterestPaid(customerId);
   } else {
     toggleDailyLoanInterestPaid(customerId);
+  }
+}
+
+function runMonthlyBillingCycleCheck() {
+  const today = getLocalToday();
+  let changed = false;
+  state.customers.forEach((c) => {
+    if (c.status === 'active' && c.loanType === 'monthly') {
+      const startD = c.startDate || c.createdAt?.slice(0, 10) || today;
+      const daysSinceStart = Math.max(0, daysBetween(startD, today));
+      const currentCycleIndex = Math.floor(daysSinceStart / 30) + 1;
+      
+      if (!c.lastCheckedCycleIndex || c.lastCheckedCycleIndex < currentCycleIndex) {
+        c.currentMonthInterestPaid = false;
+        c.lastCheckedCycleIndex = currentCycleIndex;
+        dbSaveCustomer(c);
+        changed = true;
+      }
+    }
+  });
+  if (changed) {
+    renderCustomerList();
   }
 }
 
@@ -1110,8 +1121,12 @@ function deleteMonthlyPayment(customerId, paymentId) {
 /* ─── BUSINESS LOGIC ────────────────────────────────────────── */
 
 /** Monthly interest owed by a customer per month */
-function monthlyInterest(principal) {
-  return (principal * MONTHLY_CUSTOMER_RATE) / 100;
+function monthlyInterest(cOrPrincipal) {
+  if (typeof cOrPrincipal === 'object' && cOrPrincipal !== null) {
+    const remainingP = getActivePrincipalForMonth(cOrPrincipal);
+    return (remainingP * MONTHLY_CUSTOMER_RATE) / 100;
+  }
+  return (Number(cOrPrincipal) * MONTHLY_CUSTOMER_RATE) / 100;
 }
 
 /** Investor cost for a given principal or customer */
@@ -1424,33 +1439,8 @@ function checkMonthlyRollover() {
         });
       }
       
-      const updatedCustomers = state.customers.map(c => {
-        if (c.loanType === 'monthly') {
-          return { ...c, currentMonthInterestPaid: false };
-        }
-        return c;
-      });
-      
-      state.customers = updatedCustomers;
-      
       if (isOfflineSandbox) {
         saveState();
-      } else {
-        const batch = db.batch();
-        const uid = auth.currentUser.uid;
-        let batchCount = 0;
-        for (const c of state.customers) {
-          if (c.loanType === 'monthly') {
-            const ref = db.collection('users').doc(uid).collection('customers').doc(c.id);
-            batch.update(ref, { currentMonthInterestPaid: false });
-            batchCount++;
-          }
-        }
-        if (batchCount > 0) {
-          batch.commit().catch(err => {
-            console.error("Batch update for rollover failed: ", err);
-          });
-        }
       }
       
       dbSaveSettings({
@@ -1569,14 +1559,8 @@ function computeMetrics() {
   let netMonthly      = 0;
 
   for (const c of monthly) {
-    const hasPaymentThisMonth = (c.payments || []).some(p => 
-      p.date && p.date.startsWith(currentMonthPrefix) && (p.type === 'interest' || p.type === 'Interest') && (p.status === 'Paid' || !p.status || p.status.toLowerCase() === 'paid')
-    );
-    const countsAsPaid = c.currentMonthInterestPaid && (!isFirstOfMonth || hasPaymentThisMonth);
-
-    if (countsAsPaid) {
-      const currentMonthIdx = getCurrentMonthIndex(c);
-      const activeP = getActivePrincipalForMonth(c, currentMonthIdx);
+    if (c.currentMonthInterestPaid) {
+      const activeP = getActivePrincipalForMonth(c);
       grossMonthly    += (activeP * MONTHLY_CUSTOMER_RATE) / 100;
       investorMonthly += (activeP * INVESTOR_RATE) / 100;
       agentMonthly    += c.hasAgent ? (activeP * AGENT_COMMISSION_RATE) / 100 : 0;
@@ -2606,7 +2590,7 @@ function downloadMonthlyPerformanceStatement() {
           .reduce((s, p) => s + (Number(p.amount) || 0), 0);
 
         ownerPending = Math.max(0, accrued - totalPaid) * ownerFraction;
-        expected30D = (Number(c.principal) * rate) / 100;
+        expected30D = (getActivePrincipalForMonth(c) * rate) / 100;
       }
     }
 
@@ -2790,8 +2774,7 @@ function downloadMonthlyInterestPortfolioStatement() {
     // Unpaid Due in active calendar month
     let unpaid = 0;
     if (!c.currentMonthInterestPaid) {
-      const currentMonthIdx = getCurrentMonthIndex(c);
-      const activeP = getActivePrincipalForMonth(c, currentMonthIdx);
+      const activeP = getActivePrincipalForMonth(c);
       unpaid = (activeP * MONTHLY_CUSTOMER_RATE) / 100;
     }
 
@@ -2804,7 +2787,7 @@ function downloadMonthlyInterestPortfolioStatement() {
     const NetOwnerPendingProfit = Number(unpaid) - Number(agentPendingShare) - Number(investorPendingShare);
 
     const rate = MONTHLY_CUSTOMER_RATE - INVESTOR_RATE - (c.hasAgent ? AGENT_COMMISSION_RATE : 0);
-    const expected30D = (Number(c.principal) * rate) / 100;
+    const expected30D = (getActivePrincipalForMonth(c) * rate) / 100;
 
     totalMonthlyRealizedProfit += NetOwnerProfit;
     totalMonthlyPendingPayments += NetOwnerPendingProfit;
@@ -3016,9 +2999,7 @@ function downloadDailyInterestPortfolioStatement() {
     const totalAmountPaidThisMonth = ownerCollected;
     const dynamicPending = Math.max(0, totalAccrued - totalAmountPaidThisMonth);
 
-    // Dynamic Expected Yield Formula (Based on Selected Loan Days Only)
-    const totalContractDays = Math.ceil((new Date(endD) - new Date(startD)) / (1000 * 60 * 60 * 24)) + 1;
-    const dynamicExpectedYield = totalContractDays * ownerDailyRate;
+    const dynamicExpectedYield = ownerDailyRate * 30;
 
     totalDailyRealizedProfit += ownerCollected;
     totalDailyPendingPayments += dynamicPending;
@@ -4040,7 +4021,7 @@ function renderCustomerList() {
 
   function getRowHtml(c) {
     const p = Number(c.principal);
-    const monthlyInt = c.loanType === 'monthly' ? monthlyInterest(p) : null;
+    const monthlyInt = c.loanType === 'monthly' ? monthlyInterest(c) : null;
     const ownerP     = c.loanType === 'monthly' ? ownerProfit(c) : null;
 
     return `
@@ -4147,7 +4128,7 @@ function renderCustomerList() {
           </div>
           <div style="text-align:right">
             ${c.loanType === 'monthly' ? `
-              <div style="font-size:13px;font-weight:700;color:var(--emerald-400)">${fmt(monthlyInterest(p))}</div>
+              <div style="font-size:13px;font-weight:700;color:var(--emerald-400)">${fmt(monthlyInterest(c))}</div>
               <div class="text-xs text-muted">${t('owner_prefix')}${fmt(ownerProfit(c))}</div>
             ` : (() => {
               const { rate: dailyRate, ownerDailyRate: ownerShare } = getDailyRates(c);
@@ -4625,7 +4606,7 @@ function renderDetailPanel() {
         </div>
         <div class="stat-item">
           <div class="stat-key">${t('interest_label')}</div>
-          <div class="stat-val">${c.loanType === 'monthly' ? fmt(monthlyInterest(p), true) + '/' + (state.lang === 'ta' ? 'மா' : 'mo') : '₹' + c.dailyRate + '/' + (state.lang === 'ta' ? 'நாள்' : 'day')}</div>
+          <div class="stat-val">${c.loanType === 'monthly' ? fmt(monthlyInterest(c), true) + '/' + (state.lang === 'ta' ? 'மா' : 'mo') : '₹' + c.dailyRate + '/' + (state.lang === 'ta' ? 'நாள்' : 'day')}</div>
         </div>
         <div class="stat-item">
           <div class="stat-key">
@@ -6375,6 +6356,7 @@ function renderAll() {
   if (isSettingsLoaded) {
     checkMonthlyRollover();
     prepopulateMonthlyArchives();
+    runMonthlyBillingCycleCheck();
   }
   renderView(currentView);
   // Always update dashboard KPIs if visible
@@ -7370,6 +7352,9 @@ function init() {
 
   // Detail panel overlay
   document.getElementById('detailPanelOverlay').addEventListener('click', closeDetailPanel);
+
+  // Start periodic 30-day billing cycle check (cron listener)
+  setInterval(runMonthlyBillingCycleCheck, 60000);
 }
 
 function closeMobileSidebar() {
