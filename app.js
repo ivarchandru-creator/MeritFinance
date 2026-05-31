@@ -2343,7 +2343,7 @@ function updateProfitLedgerData() {
     }
     
     const interestPaid = getCustomerPaidInterest(c);
-    remainingInterestDue = Math.max(0, accruedInterest - interestPaid);
+    remainingInterestDue = (accruedInterest - interestPaid) * ownerFraction;
     
     if (hasManualPayments) {
       const manualInterestPaid = (c.payments || [])
@@ -2445,7 +2445,7 @@ function downloadUnpaidInterestPDF() {
     }
     
     const interestPaid = getCustomerPaidInterest(c);
-    remainingInterestDue = Math.max(0, accruedInterest - interestPaid);
+    remainingInterestDue = (accruedInterest - interestPaid) * ownerFraction;
     
     if (hasManualPayments) {
       const manualInterestPaid = (c.payments || [])
@@ -2526,22 +2526,25 @@ function downloadUnpaidInterestPDF() {
     
     let remainingInterestDue = 0;
     let accruedInterest = 0;
+    let ownerFraction = 0;
     if (c.loanType === 'monthly') {
       accruedInterest = Math.round(getAccruedInterest(c));
+      const rate = MONTHLY_CUSTOMER_RATE - INVESTOR_RATE - (c.hasAgent ? AGENT_COMMISSION_RATE : 0);
+      ownerFraction = rate / MONTHLY_CUSTOMER_RATE;
     } else {
       const customDailyRate = Number(c.dailyRate) || 0;
       const startD = c.startDate || c.createdAt?.slice(0, 10) || getLocalToday();
       const endD = c.endDate || getLocalToday();
       let elapsedDays = daysBetweenInclusive(startD, endD);
       accruedInterest = elapsedDays * customDailyRate;
+      
+      const dayInv = c.dailyMethod === 'custom' ? (Number(c.dailyInvestorPayout) || 0) : (Number(c.investorSplitPercent) || 0);
+      const dayAgent = c.hasAgent ? (c.dailyMethod === 'custom' ? (Number(c.dailyAgentPayout) || 0) : (Number(c.agentSplitPercent) || 0)) : 0;
+      ownerFraction = customDailyRate > 0 ? (Math.max(0, customDailyRate - dayInv - dayAgent) / customDailyRate) : 0;
     }
 
-    if (hasManualPayments) {
-      const interestPaid = getCustomerPaidInterest(c);
-      remainingInterestDue = Math.max(0, accruedInterest - interestPaid);
-    } else {
-      remainingInterestDue = accruedInterest;
-    }
+    const interestPaid = getCustomerPaidInterest(c);
+    remainingInterestDue = (accruedInterest - interestPaid) * ownerFraction;
 
     if (remainingInterestDue > 0) {
       count++;
@@ -2622,38 +2625,51 @@ function downloadMonthlyPerformanceStatement() {
     const fromVal = c.startDate > startDate ? c.startDate : startDate;
     const toVal = (c.status === 'closed' && c.endDate < endDate) ? c.endDate : (getLocalToday() < endDate ? getLocalToday() : endDate);
 
-    let collectedInMonth = 0;
-    let remainingInterestDue = 0;
+    let ownerCollected = 0;
+    let ownerPending = 0;
 
     if (fromVal <= toVal) {
-      collectedInMonth = (c.payments || [])
+      const collectedInMonth = (c.payments || [])
         .filter(p => (p.type === 'interest' || p.type === 'Interest') && p.date >= startDate && p.date <= endDate && (p.status === 'Paid' || !p.status))
         .reduce((s, p) => s + (Number(p.amount) || 0), 0);
 
       if (c.loanType === 'daily') {
+        const { rate: dRate, invPayout: dInv, agentPayout: dAgent } = getDailyRates(c);
+        const ownerDailyRate = Math.max(0, dRate - dInv - dAgent);
+        const ownerFraction = dRate > 0 ? (ownerDailyRate / dRate) : 0;
+
+        ownerCollected = collectedInMonth * ownerFraction;
+
         const elapsed = daysBetweenInclusive(c.startDate || c.createdAt?.slice(0,10) || getLocalToday(), toVal);
-        const accrued = elapsed * (Number(c.dailyRate) || 0);
+        const accrued = elapsed * dRate;
         const totalPaid = (c.payments || [])
           .filter(p => (p.type === 'interest' || p.type === 'Interest') && p.date <= toVal && (p.status === 'Paid' || !p.status))
           .reduce((s, p) => s + (Number(p.amount) || 0), 0);
-        remainingInterestDue = accrued - totalPaid;
+
+        ownerPending = (accrued - totalPaid) * ownerFraction;
       } else {
+        const rate = MONTHLY_CUSTOMER_RATE - INVESTOR_RATE - (c.hasAgent ? AGENT_COMMISSION_RATE : 0);
+        const ownerFraction = rate / MONTHLY_CUSTOMER_RATE;
+
+        ownerCollected = collectedInMonth * ownerFraction;
+
         const accrued = getAccruedInterestUpTo(c, toVal);
         const totalPaid = (c.payments || [])
           .filter(p => (p.type === 'interest' || p.type === 'Interest') && p.date <= toVal && (p.status === 'Paid' || !p.status))
           .reduce((s, p) => s + (Number(p.amount) || 0), 0);
-        remainingInterestDue = Math.max(0, accrued - totalPaid);
+
+        ownerPending = Math.max(0, accrued - totalPaid) * ownerFraction;
       }
     }
 
-    totalRealizedProfit += collectedInMonth;
-    totalPendingPayments += remainingInterestDue;
+    totalRealizedProfit += ownerCollected;
+    totalPendingPayments += Math.max(0, ownerPending);
 
     activeBreakdown.push({
       name: c.name || 'Unknown',
       type: c.loanType === 'daily' ? 'Daily' : 'Monthly',
-      collected: collectedInMonth,
-      remaining: remainingInterestDue
+      collected: ownerCollected,
+      remaining: ownerPending
     });
   }
 
@@ -2727,8 +2743,8 @@ function downloadMonthlyPerformanceStatement() {
   doc.setFont("helvetica", "bold");
   doc.text("CUSTOMER NAME", 18, y + 5.5);
   doc.text("LOAN TYPE", 75, y + 5.5);
-  doc.text("COLLECTED INTEREST", 110, y + 5.5);
-  doc.text("REMAINING DUE", 160, y + 5.5);
+  doc.text("OWNER PROFIT", 110, y + 5.5);
+  doc.text("PENDING OWNER PROFIT", 160, y + 5.5);
 
   y += 8;
 
@@ -2748,8 +2764,8 @@ function downloadMonthlyPerformanceStatement() {
       doc.setFontSize(9);
       doc.text("CUSTOMER NAME", 18, y + 5.5);
       doc.text("LOAN TYPE", 75, y + 5.5);
-      doc.text("COLLECTED INTEREST", 110, y + 5.5);
-      doc.text("REMAINING DUE", 160, y + 5.5);
+      doc.text("OWNER PROFIT", 110, y + 5.5);
+      doc.text("PENDING OWNER PROFIT", 160, y + 5.5);
       
       y += 8;
       doc.setFont("helvetica", "normal");
@@ -3010,19 +3026,22 @@ function downloadDailyInterestPortfolioStatement() {
     const { rate: dRate, invPayout: dInv, agentPayout: dAgent } = getDailyRates(c);
     const ownerDailyRate = Math.max(0, dRate - dInv - dAgent);
     const totalOwnerProfit = daysActive * ownerDailyRate;
+    const ownerFraction = dRate > 0 ? (ownerDailyRate / dRate) : 0;
 
-    const totalPaid = getCustomerPaidInterest(c);
+    const ownerCollected = collectedInMonth * ownerFraction;
+    const totalPaidGross = getCustomerPaidInterest(c);
+    const ownerPaidOverall = totalPaidGross * ownerFraction;
 
-    const remainingDue = (dRate * daysActive) - totalPaid;
+    const remainingDue = totalOwnerProfit - ownerPaidOverall;
 
-    totalDailyRealizedProfit += collectedInMonth;
+    totalDailyRealizedProfit += ownerCollected;
     totalDailyPendingPayments += Math.max(0, remainingDue);
 
     listData.push({
       name: c.name || 'Unknown',
       adaguId: c.adaguId || '—',
       principal: Number(c.principal) || 0,
-      collected: collectedInMonth,
+      collected: ownerCollected,
       remaining: remainingDue
     });
   }
@@ -3096,8 +3115,8 @@ function downloadDailyInterestPortfolioStatement() {
   doc.text("CUSTOMER NAME", 18, y + 5.5);
   doc.text("ADAGU ID", 75, y + 5.5);
   doc.text("PRINCIPAL (RS.)", 120, y + 5.5, { align: "right" });
-  doc.text("COLLECTED INTEREST", 155, y + 5.5, { align: "right" });
-  doc.text("REMAINING DUE", 195, y + 5.5, { align: "right" });
+  doc.text("OWNER PROFIT", 155, y + 5.5, { align: "right" });
+  doc.text("PENDING OWNER PROFIT", 195, y + 5.5, { align: "right" });
 
   y += 8;
 
@@ -3122,8 +3141,8 @@ function downloadDailyInterestPortfolioStatement() {
         doc.text("CUSTOMER NAME", 18, y + 5.5);
         doc.text("ADAGU ID", 75, y + 5.5);
         doc.text("PRINCIPAL (RS.)", 120, y + 5.5, { align: "right" });
-        doc.text("COLLECTED INTEREST", 155, y + 5.5, { align: "right" });
-        doc.text("REMAINING DUE", 195, y + 5.5, { align: "right" });
+        doc.text("OWNER PROFIT", 155, y + 5.5, { align: "right" });
+        doc.text("PENDING OWNER PROFIT", 195, y + 5.5, { align: "right" });
 
         y += 8;
         doc.setFont("helvetica", "normal");
@@ -4108,8 +4127,10 @@ function renderDetailPanel() {
   if (c.loanType === 'monthly') {
     ensureCustomerPaymentsInitialized(c);
     const isPaid = !!c.currentMonthInterestPaid;
+    const rate = MONTHLY_CUSTOMER_RATE - INVESTOR_RATE - (c.hasAgent ? AGENT_COMMISSION_RATE : 0);
+    const ownerFraction = rate / MONTHLY_CUSTOMER_RATE;
     const remainingP = Math.max(0, p - (c.paidPrincipal || 0));
-    const remainingI = Math.max(0, interestAccrued - (c.paidInterest || 0));
+    const remainingI = (interestAccrued - (c.paidInterest || 0)) * ownerFraction;
     const remainingTotal = remainingP + remainingI;
 
     const langIsTA = state.lang === 'ta';
@@ -4135,14 +4156,14 @@ function renderDetailPanel() {
         <div style="display:grid;grid-template-columns:1.2fr 1fr;gap:10px;margin-bottom:10px">
           <div class="form-group" style="margin:0">
             <label class="form-label" style="font-size:11px">${langIsTA ? 'கட்டண வகை' : 'Payment Type'}</label>
-            <select id="recPaymentType" class="form-input" style="height:32px;font-size:13px;padding:4px 8px;background:var(--bg-card);border-radius:8px">
+            <select id="recPaymentType" class="form-input" onchange="updateDynamicRemainingInterest()" style="height:32px;font-size:13px;padding:4px 8px;background:var(--bg-card);border-radius:8px">
               <option value="interest">${langIsTA ? 'வட்டி செலுத்துதல்' : 'Pay Interest'}</option>
               <option value="principal">${langIsTA ? 'அசல் செலுத்துதல்' : 'Pay Principal'}</option>
             </select>
           </div>
           <div class="form-group" style="margin:0">
             <label class="form-label" style="font-size:11px">${langIsTA ? 'தொகை (₹)' : 'Amount (₹)'}</label>
-            <input type="number" id="recPaymentAmount" class="form-input" placeholder="0" min="1" style="height:32px;font-size:13px;padding:4px 8px" />
+            <input type="number" id="recPaymentAmount" class="form-input" oninput="updateDynamicRemainingInterest()" placeholder="0" min="1" style="height:32px;font-size:13px;padding:4px 8px" />
           </div>
         </div>
         <div style="display:grid;grid-template-columns:1.2fr 1fr;gap:10px;margin-bottom:12px;align-items:end">
@@ -4201,8 +4222,8 @@ function renderDetailPanel() {
 
           <!-- Pending Interest Card -->
           <div class="fintech-card card-pending-interest">
-            <span class="fintech-card-label">${langIsTA ? 'நிலுவையில் உள்ள வட்டி' : 'PENDING INTEREST'}</span>
-            <span class="fintech-card-value" id="valRemainingInterestDue" data-base-value="${remainingI}">${remainingI >= 0 ? '+' : ''}${fmt(remainingI)}</span>
+            <span class="fintech-card-label">${langIsTA ? 'உரிமையாளர் வட்டி நிலுவை' : 'PENDING OWNER PROFIT'}</span>
+            <span class="fintech-card-value" id="valRemainingInterestDue" data-base-value="${remainingI}" data-owner-fraction="${ownerFraction}">${remainingI >= 0 ? '+' : ''}${fmt(remainingI)}</span>
           </div>
 
           <!-- Total Outstanding Card (Full-Width Span) -->
@@ -4288,11 +4309,13 @@ function renderDetailPanel() {
     const interestPaid = getCustomerPaidInterest(c);
     const principalPaid = getCustomerPaidPrincipal(c);
     const remainingP = Math.max(0, parsedPrincipal - principalPaid);
-    const remainingInterestDue = (customDailyRate * elapsedDays) - interestPaid;
-    const remainingTotal = remainingP + remainingInterestDue;
-
+    
     // --- REQUIREMENT 3: Live Realized Profit Cumulative Tracker ---
     const ownerFraction = customDailyRate > 0 ? ((Math.max(0, customDailyRate - ((c.dailyMethod === 'custom' ? Number(c.dailyInvestorPayout) : Number(c.investorSplitPercent)) || 0) - (c.hasAgent ? ((c.dailyMethod === 'custom' ? Number(c.dailyAgentPayout) : Number(c.agentSplitPercent)) || 0) : 0))) / customDailyRate) : 0;
+    
+    const remainingInterestDue = (customDailyRate * elapsedDays - interestPaid) * ownerFraction;
+    const remainingTotal = remainingP + remainingInterestDue;
+
     const realizedOwnerProfit = (c.payments || [])
       .filter(p => (p.type === 'interest' || p.type === 'Interest') && (p.status === 'Paid' || !p.status))
       .reduce((sum, p) => sum + (p.amount * ownerFraction), 0);
@@ -4318,8 +4341,8 @@ function renderDetailPanel() {
 
           <!-- Pending Interest Card -->
           <div class="fintech-card card-pending-interest">
-            <span class="fintech-card-label">${langIsTA ? 'நிலுவையில் உள்ள வட்டி' : 'AMOUNT PENDING / REMAINING'}</span>
-            <span class="fintech-card-value" id="valRemainingInterestDue" data-base-value="${remainingInterestDue}">${pendingSign}${fmt(remainingInterestDue)}</span>
+            <span class="fintech-card-label">${langIsTA ? 'உரிமையாளர் வட்டி நிலுவை' : 'PENDING OWNER PROFIT'}</span>
+            <span class="fintech-card-value" id="valRemainingInterestDue" data-base-value="${remainingInterestDue}" data-owner-fraction="${ownerFraction}">${pendingSign}${fmt(remainingInterestDue)}</span>
           </div>
 
           <!-- Total Outstanding Card (Full-Width Span) -->
@@ -5281,8 +5304,9 @@ function updateDynamicRemainingInterest() {
   if (!remainingDueEl) return;
   
   const baseRemaining = parseFloat(remainingDueEl.dataset.baseValue) || 0;
+  const ownerFraction = parseFloat(remainingDueEl.dataset.ownerFraction) || 1;
   if (type === 'interest') {
-    const remaining = baseRemaining - amount;
+    const remaining = baseRemaining - (amount * ownerFraction);
     remainingDueEl.textContent = (remaining >= 0 ? '+' : '') + fmt(remaining);
   } else {
     remainingDueEl.textContent = (baseRemaining >= 0 ? '+' : '') + fmt(baseRemaining);
