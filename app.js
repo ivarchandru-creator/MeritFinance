@@ -3011,11 +3011,9 @@ function downloadDailyInterestPortfolioStatement() {
     const ownerDailyRate = Math.max(0, dRate - dInv - dAgent);
     const totalOwnerProfit = daysActive * ownerDailyRate;
 
-    const totalPaid = (c.payments || [])
-      .filter(p => (p.type === 'interest' || p.type === 'Interest') && (p.status === 'Paid' || !p.status || p.status.toLowerCase() === 'paid'))
-      .reduce((s, p) => s + (Number(p.amount) || 0), 0);
+    const totalPaid = getCustomerPaidInterest(c);
 
-    const remainingDue = totalOwnerProfit - totalPaid;
+    const remainingDue = (dRate * daysActive) - totalPaid;
 
     totalDailyRealizedProfit += collectedInMonth;
     totalDailyPendingPayments += Math.max(0, remainingDue);
