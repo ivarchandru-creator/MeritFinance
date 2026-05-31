@@ -2996,10 +2996,10 @@ function downloadDailyInterestPortfolioStatement() {
     const ownerFraction = dRate > 0 ? (ownerDailyRate / dRate) : 0;
 
     const ownerCollected = collectedInMonth * ownerFraction;
-    const totalAmountPaidThisMonth = ownerCollected;
-    const dynamicPending = Math.max(0, totalAccrued - totalAmountPaidThisMonth);
-
-    const dynamicExpectedYield = ownerDailyRate * 30;
+    // PendingProfit = TotalExpectedInterest - OwnerCollected (strict tenure math, no 30-day multiplier)
+    const dynamicPending = Math.max(0, totalAccrued - ownerCollected);
+    // Expected = actual active tenure days * daily owner rate (daysActive already = startD..endD inclusive)
+    const dynamicExpectedYield = totalAccrued;
 
     totalDailyRealizedProfit += ownerCollected;
     totalDailyPendingPayments += dynamicPending;
@@ -3083,23 +3083,26 @@ function downloadDailyInterestPortfolioStatement() {
   doc.text("ACTIVE PORTFOLIO BREAKDOWN", 15, y);
   y += 6;
 
-  // Table Headers
+  // Table Headers — 6 columns, 8pt font, explicit positions to prevent overlap
   doc.setFillColor(241, 245, 249); // slate-100
-  doc.rect(15, y, 180, 8, 'F');
+  doc.rect(15, y, 180, 10, 'F');
   doc.setDrawColor(226, 232, 240);
-  doc.line(15, y + 8, 195, y + 8);
+  doc.line(15, y + 10, 195, y + 10);
 
-  doc.setFontSize(9);
+  doc.setFontSize(8);
   doc.setFont("helvetica", "bold");
-  doc.text("CUSTOMER NAME", 18, y + 5.5);
-  doc.text("ADAGU ID", 60, y + 5.5);
-  doc.text("PRINCIPAL (RS.)", 110, y + 5.5, { align: "right" });
-  doc.text("OWNER PROFIT", 138, y + 5.5, { align: "right" });
-  doc.text("PENDING PROFIT", 166, y + 5.5, { align: "right" });
-  doc.text("TOTAL EXPECTED", 195, y + 3.5, { align: "right" });
-  doc.text("INTEREST", 195, y + 7.5, { align: "right" });
+  doc.text("CUSTOMER NAME", 18, y + 6.5);
+  doc.text("ADAGU ID", 63, y + 6.5);
+  doc.text("PRINCIPAL", 98, y + 5, { align: "right" });
+  doc.text("(RS.)", 98, y + 9, { align: "right" });
+  doc.text("OWNER", 128, y + 5, { align: "right" });
+  doc.text("PROFIT", 128, y + 9, { align: "right" });
+  doc.text("PENDING", 158, y + 5, { align: "right" });
+  doc.text("PROFIT", 158, y + 9, { align: "right" });
+  doc.text("EXPECTED", 195, y + 5, { align: "right" });
+  doc.text("INTEREST", 195, y + 9, { align: "right" });
 
-  y += 8;
+  y += 10;
 
   doc.setFont("helvetica", "normal");
   if (listData.length === 0) {
@@ -3113,36 +3116,39 @@ function downloadDailyInterestPortfolioStatement() {
 
         // Draw table header on new page
         doc.setFillColor(241, 245, 249);
-        doc.rect(15, y, 180, 8, 'F');
+        doc.rect(15, y, 180, 10, 'F');
         doc.setDrawColor(226, 232, 240);
-        doc.line(15, y + 8, 195, y + 8);
+        doc.line(15, y + 10, 195, y + 10);
 
         doc.setFont("helvetica", "bold");
-        doc.setFontSize(9);
-        doc.text("CUSTOMER NAME", 18, y + 5.5);
-        doc.text("ADAGU ID", 60, y + 5.5);
-        doc.text("PRINCIPAL (RS.)", 110, y + 5.5, { align: "right" });
-        doc.text("OWNER PROFIT", 138, y + 5.5, { align: "right" });
-        doc.text("PENDING PROFIT", 166, y + 5.5, { align: "right" });
-        doc.text("TOTAL EXPECTED", 195, y + 3.5, { align: "right" });
-        doc.text("INTEREST", 195, y + 7.5, { align: "right" });
+        doc.setFontSize(8);
+        doc.text("CUSTOMER NAME", 18, y + 6.5);
+        doc.text("ADAGU ID", 63, y + 6.5);
+        doc.text("PRINCIPAL", 98, y + 5, { align: "right" });
+        doc.text("(RS.)", 98, y + 9, { align: "right" });
+        doc.text("OWNER", 128, y + 5, { align: "right" });
+        doc.text("PROFIT", 128, y + 9, { align: "right" });
+        doc.text("PENDING", 158, y + 5, { align: "right" });
+        doc.text("PROFIT", 158, y + 9, { align: "right" });
+        doc.text("EXPECTED", 195, y + 5, { align: "right" });
+        doc.text("INTEREST", 195, y + 9, { align: "right" });
 
-        y += 8;
+        y += 10;
         doc.setFont("helvetica", "normal");
       }
 
       doc.setFontSize(8.5);
-      const wrappedName = doc.splitTextToSize(row.name, 35);
+      const wrappedName = doc.splitTextToSize(row.name, 38);
       doc.text(wrappedName, 18, y + 5);
-      doc.text(`#${row.adaguId}`, 60, y + 5);
-      doc.text(row.principal.toLocaleString('en-IN'), 110, y + 5, { align: "right" });
-      doc.text(formatPdfVal(row.collected), 138, y + 5, { align: "right" });
+      doc.text(`#${row.adaguId}`, 63, y + 5);
+      doc.text(row.principal.toLocaleString('en-IN'), 98, y + 5, { align: "right" });
+      doc.text(formatPdfVal(row.collected), 128, y + 5, { align: "right" });
 
       if (row.remaining > 0) {
         doc.setFont("helvetica", "bold");
         doc.setTextColor(185, 28, 28); // rose-700
       }
-      doc.text(formatPdfVal(row.remaining), 166, y + 5, { align: "right" });
+      doc.text(formatPdfVal(row.remaining), 158, y + 5, { align: "right" });
       doc.setTextColor(51, 51, 51);
       doc.setFont("helvetica", "normal");
 
@@ -3608,23 +3614,26 @@ function downloadDailyInterestMonthReport(monthName, startDate, endDate) {
   doc.text(`ACTIVE DAILY PORTFOLIO BREAKDOWN`, 15, y);
   y += 6;
 
-  // Table Headers
+  // Table Headers — 6 columns, 8pt font, explicit positions to prevent overlap
   doc.setFillColor(241, 245, 249); // slate-100
-  doc.rect(15, y, 180, 8, 'F');
+  doc.rect(15, y, 180, 10, 'F');
   doc.setDrawColor(226, 232, 240);
-  doc.line(15, y + 8, 195, y + 8);
+  doc.line(15, y + 10, 195, y + 10);
 
-  doc.setFontSize(9);
+  doc.setFontSize(8);
   doc.setFont("helvetica", "bold");
-  doc.text("CUSTOMER NAME", 18, y + 5.5);
-  doc.text("ADAGU ID", 60, y + 5.5);
-  doc.text("PRINCIPAL (RS.)", 110, y + 5.5, { align: "right" });
-  doc.text("OWNER PROFIT", 138, y + 5.5, { align: "right" });
-  doc.text("PENDING PROFIT", 166, y + 5.5, { align: "right" });
-  doc.text("TOTAL EXPECTED", 195, y + 3.5, { align: "right" });
-  doc.text("INTEREST", 195, y + 7.5, { align: "right" });
+  doc.text("CUSTOMER NAME", 18, y + 6.5);
+  doc.text("ADAGU ID", 63, y + 6.5);
+  doc.text("PRINCIPAL", 98, y + 5, { align: "right" });
+  doc.text("(RS.)", 98, y + 9, { align: "right" });
+  doc.text("OWNER", 128, y + 5, { align: "right" });
+  doc.text("PROFIT", 128, y + 9, { align: "right" });
+  doc.text("PENDING", 158, y + 5, { align: "right" });
+  doc.text("PROFIT", 158, y + 9, { align: "right" });
+  doc.text("EXPECTED", 195, y + 5, { align: "right" });
+  doc.text("INTEREST", 195, y + 9, { align: "right" });
 
-  y += 8;
+  y += 10;
 
   doc.setFont("helvetica", "normal");
   if (listData.length === 0) {
@@ -3638,36 +3647,39 @@ function downloadDailyInterestMonthReport(monthName, startDate, endDate) {
 
         // Draw table header on new page
         doc.setFillColor(241, 245, 249);
-        doc.rect(15, y, 180, 8, 'F');
+        doc.rect(15, y, 180, 10, 'F');
         doc.setDrawColor(226, 232, 240);
-        doc.line(15, y + 8, 195, y + 8);
+        doc.line(15, y + 10, 195, y + 10);
 
         doc.setFont("helvetica", "bold");
-        doc.setFontSize(9);
-        doc.text("CUSTOMER NAME", 18, y + 5.5);
-        doc.text("ADAGU ID", 60, y + 5.5);
-        doc.text("PRINCIPAL (RS.)", 110, y + 5.5, { align: "right" });
-        doc.text("OWNER PROFIT", 138, y + 5.5, { align: "right" });
-        doc.text("PENDING PROFIT", 166, y + 5.5, { align: "right" });
-        doc.text("TOTAL EXPECTED", 195, y + 3.5, { align: "right" });
-        doc.text("INTEREST", 195, y + 7.5, { align: "right" });
+        doc.setFontSize(8);
+        doc.text("CUSTOMER NAME", 18, y + 6.5);
+        doc.text("ADAGU ID", 63, y + 6.5);
+        doc.text("PRINCIPAL", 98, y + 5, { align: "right" });
+        doc.text("(RS.)", 98, y + 9, { align: "right" });
+        doc.text("OWNER", 128, y + 5, { align: "right" });
+        doc.text("PROFIT", 128, y + 9, { align: "right" });
+        doc.text("PENDING", 158, y + 5, { align: "right" });
+        doc.text("PROFIT", 158, y + 9, { align: "right" });
+        doc.text("EXPECTED", 195, y + 5, { align: "right" });
+        doc.text("INTEREST", 195, y + 9, { align: "right" });
 
-        y += 8;
+        y += 10;
         doc.setFont("helvetica", "normal");
       }
 
       doc.setFontSize(8.5);
-      const wrappedName = doc.splitTextToSize(row.name, 35);
+      const wrappedName = doc.splitTextToSize(row.name, 38);
       doc.text(wrappedName, 18, y + 5);
-      doc.text(`#${row.adaguId}`, 60, y + 5);
-      doc.text(row.principal.toLocaleString('en-IN'), 110, y + 5, { align: "right" });
-      doc.text(formatPdfVal(row.collected), 138, y + 5, { align: "right" });
+      doc.text(`#${row.adaguId}`, 63, y + 5);
+      doc.text(row.principal.toLocaleString('en-IN'), 98, y + 5, { align: "right" });
+      doc.text(formatPdfVal(row.collected), 128, y + 5, { align: "right" });
 
       if (row.remaining > 0) {
         doc.setFont("helvetica", "bold");
         doc.setTextColor(185, 28, 28); // rose-700
       }
-      doc.text(formatPdfVal(row.remaining), 166, y + 5, { align: "right" });
+      doc.text(formatPdfVal(row.remaining), 158, y + 5, { align: "right" });
       doc.setTextColor(51, 51, 51);
       doc.setFont("helvetica", "normal");
 
