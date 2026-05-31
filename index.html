@@ -253,7 +253,7 @@
                 <div class="kpi-meta" id="kpiDailyAgentSub">Agent referral commission</div>
               </div>
 
-              <div class="kpi-card card-net">
+              <div class="kpi-card card-net interactive" role="button" tabindex="0" onclick="downloadMonthlyPerformanceStatement()" aria-label="Daily Interest Portfolio Track">
                 <div class="kpi-header">
                   <div class="kpi-label" data-i18n="kpi_net_daily">DAILY INTEREST PORTFOLIO TRACK (தினசரி வட்டி டிராக்)</div>
                   <div class="kpi-icon">
@@ -271,7 +271,7 @@
         <!-- Aggregate Financial Overview Rows -->
         <div class="aggregate-layout" style="margin-top:16px;display:flex;flex-direction:column;gap:8px">
           <!-- Row 1: Overall Combined Monthly Profit -->
-          <div class="aggregate-row" id="aggCombinedMonthlyRow" style="display:flex;align-items:center;justify-content:space-between;padding:10px 16px;background:var(--bg-card);border:1px solid var(--border-card);border-radius:var(--radius-lg);transition:all var(--duration-base)">
+          <div class="aggregate-row interactive" id="aggCombinedMonthlyRow" role="button" tabindex="0" onclick="downloadMonthlyPerformanceStatement()" aria-label="Overall Combined Monthly Profit" style="cursor:pointer;display:flex;align-items:center;justify-content:space-between;padding:10px 16px;background:var(--bg-card);border:1px solid var(--border-card);border-radius:var(--radius-lg);transition:all var(--duration-base)">
             <div style="font-size:13px;font-weight:700;color:var(--text-primary);letter-spacing:0.3px" data-i18n="lbl_combined_monthly_profit">Overall Combined Monthly Profit</div>
             <div id="valCombinedMonthlyProfit" style="font-size:16px;font-weight:800;color:var(--emerald-400)">₹0</div>
           </div>
