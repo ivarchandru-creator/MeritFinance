@@ -1413,22 +1413,36 @@ function checkMonthlyRollover() {
         }
       }
 
-      let grossDaily    = 0;
-      let investorDaily = 0;
-      let agentDaily    = 0;
-      let netDaily      = 0;
+      let rawGrossDaily    = 0;
+      let rawInvestorDaily = 0;
+      let rawAgentDaily    = 0;
+      let rawNetDaily      = 0;
 
       for (const c of daily) {
-        const paidDatesInMonth = (c.dailyPaidDates || []).filter(d => d.startsWith(archiveMonth));
-        const paidDaysCount = paidDatesInMonth.length;
-        if (paidDaysCount > 0) {
-          const { rate, invPayout, agentPayout, ownerDailyRate } = getDailyRates(c);
-          grossDaily    += rate * paidDaysCount;
-          investorDaily += invPayout * paidDaysCount;
-          agentDaily    += agentPayout * paidDaysCount;
-          netDaily      += ownerDailyRate * paidDaysCount;
+        const { rate: dRate, invPayout: dInv, agentPayout: dAgent } = getDailyRates(c);
+        const payments = c.payments || [];
+        for (const p of payments) {
+          if (p.date && p.date.startsWith(archiveMonth) && (p.type === 'interest' || p.type === 'Interest') && (p.status === 'Paid' || !p.status || p.status.toLowerCase() === 'paid')) {
+            const amt = Number(p.amount) || 0;
+            rawGrossDaily += amt;
+            if (dRate > 0) {
+              const daysFactor = amt / dRate;
+              const inv = dInv * daysFactor;
+              const agent = dAgent * daysFactor;
+              rawInvestorDaily += inv;
+              rawAgentDaily    += agent;
+              rawNetDaily      += Math.max(0, amt - inv - agent);
+            } else {
+              rawNetDaily += amt;
+            }
+          }
         }
       }
+
+      const grossDaily    = Math.round(rawGrossDaily);
+      const investorDaily = Math.round(rawInvestorDaily);
+      const agentDaily    = Math.round(rawAgentDaily);
+      const netDaily      = Math.round(rawNetDaily);
       
       const ownerNetProfitConcluded = netMonthly + netDaily;
       
@@ -1617,24 +1631,38 @@ function computeMetrics() {
   }
 
   // ── Daily loans analytics (strictly accumulated from paid daily rates in current month) ──
-  let grossDaily    = 0;
-  let investorDaily = 0;
-  let agentDaily    = 0;
-  let netDaily      = 0;
+  let rawGrossDaily    = 0;
+  let rawInvestorDaily = 0;
+  let rawAgentDaily    = 0;
+  let rawNetDaily      = 0;
 
   const currentMonthPrefix = getLocalToday().slice(0, 7);
 
   for (const c of daily) {
-    const paidDatesInMonth = (c.dailyPaidDates || []).filter(d => d.startsWith(currentMonthPrefix));
-    const paidDaysCount = paidDatesInMonth.length;
-    if (paidDaysCount > 0) {
-      const { rate, invPayout, agentPayout, ownerDailyRate } = getDailyRates(c);
-      grossDaily    += rate * paidDaysCount;
-      investorDaily += invPayout * paidDaysCount;
-      agentDaily    += agentPayout * paidDaysCount;
-      netDaily      += ownerDailyRate * paidDaysCount;
+    const { rate: dRate, invPayout: dInv, agentPayout: dAgent } = getDailyRates(c);
+    const payments = c.payments || [];
+    for (const p of payments) {
+      if (p.date && p.date.startsWith(currentMonthPrefix) && (p.type === 'interest' || p.type === 'Interest') && (p.status === 'Paid' || !p.status || p.status.toLowerCase() === 'paid')) {
+        const amt = Number(p.amount) || 0;
+        rawGrossDaily += amt;
+        if (dRate > 0) {
+          const daysFactor = amt / dRate;
+          const inv = dInv * daysFactor;
+          const agent = dAgent * daysFactor;
+          rawInvestorDaily += inv;
+          rawAgentDaily    += agent;
+          rawNetDaily      += Math.max(0, amt - inv - agent);
+        } else {
+          rawNetDaily += amt;
+        }
+      }
     }
   }
+
+  const grossDaily    = Math.round(rawGrossDaily);
+  const investorDaily = Math.round(rawInvestorDaily);
+  const agentDaily    = Math.round(rawAgentDaily);
+  const netDaily      = Math.round(rawNetDaily);
 
   // ── Combined totals ──
   // Investor capital ledger total (used for sub-label display only)
@@ -3139,18 +3167,7 @@ function renderDashboard() {
   
   const kpiDailyNet = document.getElementById('kpiDailyNet');
   if (kpiDailyNet) {
-    let totalDailyPaidInterestInMonth = 0;
-    const currentMonthPrefix = getLocalToday().slice(0, 7);
-    for (const c of state.customers.filter(c => c.status === 'active' && c.loanType === 'daily')) {
-      if (c.payments) {
-        for (const p of c.payments) {
-          if (p.date && p.date.startsWith(currentMonthPrefix) && (p.type === 'interest' || p.type === 'Interest') && (p.status === 'Paid' || !p.status)) {
-            totalDailyPaidInterestInMonth += Number(p.amount) || 0;
-          }
-        }
-      }
-    }
-    kpiDailyNet.textContent = fmt(totalDailyPaidInterestInMonth, false);
+    kpiDailyNet.textContent = fmt(m.netDaily, false);
   }
 
   // Update sub-labels dynamically
