@@ -2815,14 +2815,20 @@ function downloadMonthlyInterestPortfolioStatement() {
       unpaid = (activeP * MONTHLY_CUSTOMER_RATE) / 100;
     }
 
-    totalMonthlyRealizedProfit += collected;
+    const investorShare = collected * (INVESTOR_RATE / MONTHLY_CUSTOMER_RATE);
+    const agentShare = c.hasAgent ? (collected * (AGENT_COMMISSION_RATE / MONTHLY_CUSTOMER_RATE)) : 0;
+    const NetOwnerProfit = Number(collected) - Number(agentShare) - Number(investorShare);
+
+    totalMonthlyRealizedProfit += NetOwnerProfit;
     totalMonthlyPendingPayments += unpaid;
 
     listData.push({
       name: c.name || 'Unknown',
       adaguId: c.adaguId || '—',
       principal: Number(c.principal) || 0,
-      collected: collected,
+      collectedInterest: collected,
+      investorShare: investorShare,
+      agentShare: agentShare,
       unpaid: unpaid
     });
   }
@@ -2858,11 +2864,11 @@ function downloadMonthlyInterestPortfolioStatement() {
   // Vert line in box
   doc.line(105, y, 105, y + 26);
 
-  // Left KPI: Monthly Realized Profit
+  // Left KPI: Monthly Realized Profit (Net Owner Profit)
   doc.setTextColor(100, 116, 139); // slate-500
   doc.setFontSize(8.5);
   doc.setFont("helvetica", "bold");
-  doc.text("MONTHLY REALIZED PROFIT (COLLECTED)", 20, y + 8);
+  doc.text("MONTHLY REALIZED OWNER PROFIT", 20, y + 8);
   doc.setTextColor(4, 120, 87); // emerald-700
   doc.setFontSize(14);
   doc.text(formatPdfVal(totalMonthlyRealizedProfit), 20, y + 18);
@@ -2896,7 +2902,7 @@ function downloadMonthlyInterestPortfolioStatement() {
   doc.text("MONTHLY CUSTOMERS", 18, y + 5.5);
   doc.text("ADAGU ID", 72, y + 5.5);
   doc.text("PRINCIPAL (RS.)", 112, y + 5.5, { align: "right" });
-  doc.text("COLLECTED INTEREST", 154, y + 5.5, { align: "right" });
+  doc.text("OWNER PROFIT", 154, y + 5.5, { align: "right" });
   doc.text("CURRENT UNPAID DUE", 192, y + 5.5, { align: "right" });
 
   y += 8;
@@ -2922,7 +2928,7 @@ function downloadMonthlyInterestPortfolioStatement() {
         doc.text("MONTHLY CUSTOMERS", 18, y + 5.5);
         doc.text("ADAGU ID", 72, y + 5.5);
         doc.text("PRINCIPAL (RS.)", 112, y + 5.5, { align: "right" });
-        doc.text("COLLECTED INTEREST", 154, y + 5.5, { align: "right" });
+        doc.text("OWNER PROFIT", 154, y + 5.5, { align: "right" });
         doc.text("CURRENT UNPAID DUE", 192, y + 5.5, { align: "right" });
 
         y += 8;
@@ -2934,7 +2940,9 @@ function downloadMonthlyInterestPortfolioStatement() {
       doc.text(wrappedName, 18, y + 5);
       doc.text(`#${row.adaguId}`, 72, y + 5);
       doc.text(row.principal.toLocaleString('en-IN'), 112, y + 5, { align: "right" });
-      doc.text(formatPdfVal(row.collected), 154, y + 5, { align: "right" });
+
+      const NetOwnerProfit = Number(row.collectedInterest) - Number(row.agentShare || 0) - Number(row.investorShare || 0);
+      doc.text(formatPdfVal(NetOwnerProfit), 154, y + 5, { align: "right" });
 
       if (row.unpaid > 0) {
         doc.setFont("helvetica", "bold");
