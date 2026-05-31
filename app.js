@@ -1262,16 +1262,15 @@ function parseCardValue(elementId) {
   return isNaN(num) ? 0 : num;
 }
 
-function getOverallAnnualProfit() {
+function getOverallAnnualProfit(m) {
   const today = getLocalToday();
   const currentYear = today.slice(0, 4);
   const currentMonthNum = parseInt(today.slice(5, 7), 10);
   const currentMonthIdx = currentMonthNum - 1;
   
-  // Calculate current month's dynamic active display values strictly from the dashboard cards
-  const monthlyCardVal = parseCardValue('kpiMonthlyNet');
-  const dailyCardVal = parseCardValue('kpiDailyNet');
-  const currentMonthProfit = monthlyCardVal + dailyCardVal;
+  // Calculate current month's dynamic active display values strictly from computed metrics
+  const metrics = m || computeMetrics();
+  const currentMonthProfit = metrics.netMonthly + metrics.netDaily;
   
   let totalAnnual = 0;
   for (let i = 0; i < 12; i++) {
@@ -3534,10 +3533,8 @@ function renderDashboard() {
   if (kpiDailyNetSub) kpiDailyNetSub.textContent = "Real-time collected daily loans for this month";
 
   // Populate Aggregate Overview Rows
-  const monthlyCardVal = parseCardValue('kpiMonthlyNet');
-  const dailyCardVal = parseCardValue('kpiDailyNet');
-  const combinedMonthly = monthlyCardVal + dailyCardVal;
-  const overallAnnual = getOverallAnnualProfit();
+  const combinedMonthly = m.netMonthly + m.netDaily;
+  const overallAnnual = getOverallAnnualProfit(m);
 
   const valCombinedMonthlyProfit = document.getElementById('valCombinedMonthlyProfit');
   if (valCombinedMonthlyProfit) valCombinedMonthlyProfit.textContent = fmt(combinedMonthly, false);
