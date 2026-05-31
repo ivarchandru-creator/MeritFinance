@@ -4311,8 +4311,8 @@ function renderDetailPanel() {
     const rate = MONTHLY_CUSTOMER_RATE - INVESTOR_RATE - (c.hasAgent ? AGENT_COMMISSION_RATE : 0);
     const ownerFraction = rate / MONTHLY_CUSTOMER_RATE;
     const remainingP = Math.max(0, p - (c.paidPrincipal || 0));
-    const remainingI = (interestAccrued - (c.paidInterest || 0)) * ownerFraction;
-    const remainingTotal = remainingP + remainingI;
+    const remainingI = Math.max(0, (interestAccrued - (c.paidInterest || 0)) * ownerFraction);
+    const remainingTotal = remainingP;
 
     const langIsTA = state.lang === 'ta';
     const currentMonthHtml = `
@@ -4404,7 +4404,7 @@ function renderDetailPanel() {
           <!-- Pending Interest Card -->
           <div class="fintech-card card-pending-interest">
             <span class="fintech-card-label">${langIsTA ? 'உரிமையாளர் வட்டி நிலுவை' : 'PENDING OWNER PROFIT'}</span>
-            <span class="fintech-card-value" id="valRemainingInterestDue" data-base-value="${remainingI}" data-owner-fraction="${ownerFraction}">${remainingI >= 0 ? '+' : ''}${fmt(remainingI)}</span>
+            <span class="fintech-card-value" id="valRemainingInterestDue" data-base-value="${remainingI}" data-owner-fraction="${ownerFraction}">${remainingI > 0 ? '+' : ''}${fmt(remainingI)}</span>
           </div>
 
           <!-- Total Outstanding Card (Full-Width Span) -->
@@ -4494,15 +4494,15 @@ function renderDetailPanel() {
     const { rate, ownerDailyRate } = getDailyRates(c);
     const ownerFraction = rate > 0 ? (ownerDailyRate / rate) : 0;
     
-    const remainingInterestDue = (customDailyRate * elapsedDays - interestPaid) * ownerFraction;
-    const remainingTotal = remainingP + remainingInterestDue;
+    const remainingInterestDue = Math.max(0, (customDailyRate * elapsedDays - interestPaid) * ownerFraction);
+    const remainingTotal = remainingP;
 
     const realizedOwnerProfit = (c.payments || [])
       .filter(p => (p.type === 'interest' || p.type === 'Interest') && (p.status === 'Paid' || !p.status))
       .reduce((sum, p) => sum + (p.amount * ownerFraction), 0);
     const roundedRealizedOwnerProfit = Math.round(realizedOwnerProfit);
 
-    const pendingSign = remainingInterestDue < 0 ? '' : '+';
+    const pendingSign = remainingInterestDue > 0 ? '+' : '';
 
     const breakdownSectionHtml = `
       <div class="detail-section ledger-card" style="margin-top:14px">
@@ -5506,10 +5506,10 @@ function updateDynamicRemainingInterest() {
   const baseRemaining = parseFloat(remainingDueEl.dataset.baseValue) || 0;
   const ownerFraction = parseFloat(remainingDueEl.dataset.ownerFraction) || 1;
   if (type === 'interest') {
-    const remaining = baseRemaining - (amount * ownerFraction);
-    remainingDueEl.textContent = (remaining >= 0 ? '+' : '') + fmt(remaining);
+    const remaining = Math.max(0, baseRemaining - (amount * ownerFraction));
+    remainingDueEl.textContent = (remaining > 0 ? '+' : '') + fmt(remaining);
   } else {
-    remainingDueEl.textContent = (baseRemaining >= 0 ? '+' : '') + fmt(baseRemaining);
+    remainingDueEl.textContent = (baseRemaining > 0 ? '+' : '') + fmt(baseRemaining);
   }
 }
 
