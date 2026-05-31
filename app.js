@@ -3015,10 +3015,10 @@ function downloadDailyInterestPortfolioStatement() {
       .filter(p => (p.type === 'interest' || p.type === 'Interest') && (p.status === 'Paid' || !p.status || p.status.toLowerCase() === 'paid'))
       .reduce((s, p) => s + (Number(p.amount) || 0), 0);
 
-    const remainingDue = totalPaid - totalOwnerProfit;
+    const remainingDue = totalOwnerProfit - totalPaid;
 
     totalDailyRealizedProfit += collectedInMonth;
-    totalDailyPendingPayments += Math.max(0, totalOwnerProfit - totalPaid);
+    totalDailyPendingPayments += Math.max(0, remainingDue);
 
     listData.push({
       name: c.name || 'Unknown',
