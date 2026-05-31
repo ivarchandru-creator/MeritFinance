@@ -3015,11 +3015,14 @@ function downloadDailyInterestPortfolioStatement() {
     const ownerCollected = collectedInMonth * ownerFraction;
     const totalAmountPaidThisMonth = ownerCollected;
     const dynamicPending = Math.max(0, totalAccrued - totalAmountPaidThisMonth);
-    const expected30D = ownerDailyRate * 30;
+
+    // Dynamic Expected Yield Formula (Based on Selected Loan Days Only)
+    const totalContractDays = Math.ceil((new Date(endD) - new Date(startD)) / (1000 * 60 * 60 * 24));
+    const dynamicExpectedYield = totalContractDays * ownerDailyRate;
 
     totalDailyRealizedProfit += ownerCollected;
     totalDailyPendingPayments += dynamicPending;
-    totalDailyExpectedProfit += expected30D;
+    totalDailyExpectedProfit += dynamicExpectedYield;
 
     listData.push({
       name: c.name || 'Unknown',
@@ -3027,7 +3030,7 @@ function downloadDailyInterestPortfolioStatement() {
       principal: Number(c.principal) || 0,
       collected: ownerCollected,
       remaining: dynamicPending,
-      expected30D: expected30D
+      expected30D: dynamicExpectedYield
     });
   }
 
@@ -3081,14 +3084,15 @@ function downloadDailyInterestPortfolioStatement() {
   doc.setFontSize(12);
   doc.text(formatPdfVal(totalDailyPendingPayments), 77, y + 18);
 
-  // Right KPI: Next 30 Days Expected Dynamic Profit
+  // Right KPI: Total Expected Interest
   doc.setTextColor(100, 116, 139); // slate-500
-  doc.setFontSize(7);
+  doc.setFontSize(6.5);
   doc.setFont("helvetica", "bold");
-  doc.text("EXPECTED 30D YIELD", 137, y + 8);
+  doc.text("TOTAL EXPECTED INTEREST", 137, y + 7);
+  doc.text("(மொத்த சாத்தியமான வட்டி)", 137, y + 11);
   doc.setTextColor(217, 119, 6); // amber-600
   doc.setFontSize(12);
-  doc.text(formatPdfVal(totalDailyExpectedProfit), 137, y + 18);
+  doc.text(formatPdfVal(totalDailyExpectedProfit), 137, y + 19);
 
   y += 38;
 
@@ -3112,7 +3116,7 @@ function downloadDailyInterestPortfolioStatement() {
   doc.text("PRINCIPAL (RS.)", 88, y + 5.5, { align: "right" });
   doc.text("OWNER PROFIT", 120, y + 5.5, { align: "right" });
   doc.text("PENDING PROFIT", 155, y + 5.5, { align: "right" });
-  doc.text("EXPECTED 30D PROFIT", 195, y + 5.5, { align: "right" });
+  doc.text("TOTAL EXPECTED INTEREST", 195, y + 5.5, { align: "right" });
 
   y += 8;
 
@@ -3139,7 +3143,7 @@ function downloadDailyInterestPortfolioStatement() {
         doc.text("PRINCIPAL (RS.)", 88, y + 5.5, { align: "right" });
         doc.text("OWNER PROFIT", 120, y + 5.5, { align: "right" });
         doc.text("PENDING PROFIT", 155, y + 5.5, { align: "right" });
-        doc.text("EXPECTED 30D PROFIT", 195, y + 5.5, { align: "right" });
+        doc.text("TOTAL EXPECTED INTEREST", 195, y + 5.5, { align: "right" });
 
         y += 8;
         doc.setFont("helvetica", "normal");
@@ -3544,11 +3548,15 @@ function downloadDailyInterestMonthReport(monthName, startDate, endDate) {
       .reduce((sum, p) => sum + (Number(p.amount) || 0), 0) * ownerFraction;
       
     const dynamicPending = Math.max(0, totalAccrued - totalPaidUpToMonthEnd);
-    const expected30D = ownerDailyRate * 30;
+    
+    // Dynamic Expected Yield Formula (Based on Selected Loan Days Only)
+    const endDForContract = c.endDate || toVal;
+    const totalContractDays = Math.ceil((new Date(endDForContract) - new Date(startD)) / (1000 * 60 * 60 * 24));
+    const dynamicExpectedYield = totalContractDays * ownerDailyRate;
 
     totalDailyRealizedProfit += ownerCollected;
     totalDailyPendingPayments += dynamicPending;
-    totalDailyExpectedProfit += expected30D;
+    totalDailyExpectedProfit += dynamicExpectedYield;
 
     listData.push({
       name: c.name || 'Unknown',
@@ -3556,7 +3564,7 @@ function downloadDailyInterestMonthReport(monthName, startDate, endDate) {
       principal: Number(c.principal) || 0,
       collected: ownerCollected,
       remaining: dynamicPending,
-      expected30D: expected30D
+      expected30D: dynamicExpectedYield
     });
   }
 
@@ -3610,14 +3618,15 @@ function downloadDailyInterestMonthReport(monthName, startDate, endDate) {
   doc.setFontSize(12);
   doc.text(formatPdfVal(totalDailyPendingPayments), 77, y + 18);
 
-  // Right KPI: Next 30 Days Expected Dynamic Profit
+  // Right KPI: Total Expected Interest
   doc.setTextColor(100, 116, 139); // slate-500
-  doc.setFontSize(7);
+  doc.setFontSize(6.5);
   doc.setFont("helvetica", "bold");
-  doc.text("EXPECTED 30D YIELD", 137, y + 8);
+  doc.text("TOTAL EXPECTED INTEREST", 137, y + 7);
+  doc.text("(மொத்த சாத்தியமான வட்டி)", 137, y + 11);
   doc.setTextColor(217, 119, 6); // amber-600
   doc.setFontSize(12);
-  doc.text(formatPdfVal(totalDailyExpectedProfit), 137, y + 18);
+  doc.text(formatPdfVal(totalDailyExpectedProfit), 137, y + 19);
 
   y += 38;
 
@@ -3641,7 +3650,7 @@ function downloadDailyInterestMonthReport(monthName, startDate, endDate) {
   doc.text("PRINCIPAL (RS.)", 88, y + 5.5, { align: "right" });
   doc.text("OWNER PROFIT", 120, y + 5.5, { align: "right" });
   doc.text("PENDING PROFIT", 155, y + 5.5, { align: "right" });
-  doc.text("EXPECTED 30D PROFIT", 195, y + 5.5, { align: "right" });
+  doc.text("TOTAL EXPECTED INTEREST", 195, y + 5.5, { align: "right" });
 
   y += 8;
 
@@ -3668,7 +3677,7 @@ function downloadDailyInterestMonthReport(monthName, startDate, endDate) {
         doc.text("PRINCIPAL (RS.)", 88, y + 5.5, { align: "right" });
         doc.text("OWNER PROFIT", 120, y + 5.5, { align: "right" });
         doc.text("PENDING PROFIT", 155, y + 5.5, { align: "right" });
-        doc.text("EXPECTED 30D PROFIT", 195, y + 5.5, { align: "right" });
+        doc.text("TOTAL EXPECTED INTEREST", 195, y + 5.5, { align: "right" });
 
         y += 8;
         doc.setFont("helvetica", "normal");
