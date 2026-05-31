@@ -845,33 +845,16 @@ function getDailyAccruedMetricsForRange(c, fromDate, toDate) {
   
   if (!c || !fromDate || !toDate || toDate < fromDate) return { gross, investorCost, agentPay, ownerNet };
   
-  const rate = Number(c.dailyRate) || 0;
-  const method = c.dailyMethod || 'split';
+  const { rate, invPayout, agentPayout, ownerDailyRate } = getDailyRates(c);
   
   const start = parseDate(fromDate);
   const end = parseDate(toDate);
   
   for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
-    const ds = formatLocalDate(d);
-    const activeP = getActivePrincipalForDate(c, ds);
-    const dayGross = rate;
-    
-    const dayInv = c.dailyMethod === 'custom'
-      ? (Number(c.dailyInvestorPayout) || 0)
-      : (Number(c.investorSplitPercent) || 0);
-      
-    const dayAgent = c.hasAgent
-      ? (c.dailyMethod === 'custom'
-         ? (Number(c.dailyAgentPayout) || 0)
-         : (Number(c.agentSplitPercent) || 0))
-      : 0;
-
-    const dayOwner = Math.max(0, dayGross - dayInv - dayAgent);
-    
-    gross += dayGross;
-    investorCost += dayInv;
-    agentPay += dayAgent;
-    ownerNet += dayOwner;
+    gross += rate;
+    investorCost += invPayout;
+    agentPay += agentPayout;
+    ownerNet += ownerDailyRate;
   }
   
   return { gross, investorCost, agentPay, ownerNet };
@@ -882,22 +865,10 @@ function getDailyLoanMetricsForPaidDays(c) {
   ensureCustomerPaymentsInitialized(c);
   const paidInterest = (c.payments || []).filter(p => p.type === 'interest').reduce((s, p) => s + p.amount, 0);
   
-  const rate = Number(c.dailyRate) || 0;
+  const { rate, invPayout, agentPayout, ownerDailyRate } = getDailyRates(c);
   if (rate <= 0 || paidInterest <= 0) {
     return { gross: 0, investorCost: 0, agentPay: 0, ownerNet: 0 };
   }
-  
-  const invPayout = c.dailyMethod === 'custom'
-    ? (Number(c.dailyInvestorPayout) || 0)
-    : (Number(c.investorSplitPercent) || 0);
-    
-  const agentPayout = c.hasAgent
-    ? (c.dailyMethod === 'custom'
-       ? (Number(c.dailyAgentPayout) || 0)
-       : (Number(c.agentSplitPercent) || 0))
-    : 0;
-    
-  const ownerPayout = Math.max(0, rate - invPayout - agentPayout);
   
   const ratioInv = invPayout / rate;
   const ratioAgent = agentPayout / rate;
@@ -1177,9 +1148,7 @@ function agentCommission(principalOrCustomer, customRate, days) {
     } else { // daily — custom/flexible rate track
       const d = days !== undefined ? days : 30;
       if (!c.hasAgent) return 0;
-      const agentPayout = c.dailyMethod === 'custom'
-        ? (Number(c.dailyAgentPayout) || 0)
-        : (Number(c.agentSplitPercent) || 0);
+      const { agentPayout } = getDailyRates(c);
       return agentPayout * d;
     }
   }
@@ -1200,16 +1169,8 @@ function ownerProfit(principalOrCustomer, hasAgent, optAgentRate) {
       return (p * rate) / 100;
     } else { // daily — custom/flexible rate track
       const d = 30;
-      const gross = dailyInterest(p, Number(c.dailyRate) || 0, d);
-      const invPayout = c.dailyMethod === 'custom'
-        ? (Number(c.dailyInvestorPayout) || 0)
-        : (Number(c.investorSplitPercent) || 0);
-      const agentPayout = c.hasAgent
-        ? (c.dailyMethod === 'custom'
-           ? (Number(c.dailyAgentPayout) || 0)
-           : (Number(c.agentSplitPercent) || 0))
-        : 0;
-      return gross - (invPayout * d) - (agentPayout * d);
+      const { ownerDailyRate } = getDailyRates(c);
+      return ownerDailyRate * d;
     }
   }
   // Scalar fallback (used for ad-hoc calculations)
@@ -1231,32 +1192,20 @@ function dailyInterest(principal, dailyRate, days) {
  */
 function getDailyLoanMetrics(c, days) {
   if (days <= 0) return { gross: 0, investorCost: 0, agentPay: 0, ownerNet: 0 };
-  const p    = Number(c.principal);
-  const rate = Number(c.dailyRate) || 0;
-  const gross = dailyInterest(p, rate, days);
-
-  const invPayout = c.dailyMethod === 'custom'
-    ? (Number(c.dailyInvestorPayout) || 0)
-    : (Number(c.investorSplitPercent) || 0);
-    
-  const agentPayout = c.hasAgent
-    ? (c.dailyMethod === 'custom'
-       ? (Number(c.dailyAgentPayout) || 0)
-       : (Number(c.agentSplitPercent) || 0))
-    : 0;
-
-  const investorCostVal = invPayout * days;
-  const agentPayVal    = agentPayout * days;
-  const ownerNetVal    = Math.max(0, gross - investorCostVal - agentPayVal);
-
-  return { gross, investorCost: investorCostVal, agentPay: agentPayVal, ownerNet: ownerNetVal };
+  const { rate, invPayout, agentPayout, ownerDailyRate } = getDailyRates(c);
+  return {
+    gross: rate * days,
+    investorCost: invPayout * days,
+    agentPay: agentPayout * days,
+    ownerNet: ownerDailyRate * days
+  };
 }
 
 function getDailyRates(c) {
   if (!c) return { rate: 0, invPayout: 0, agentPayout: 0, ownerDailyRate: 0 };
   const rate = Number(c.dailyRate) || 0;
-  const invPayout = c.dailyMethod === 'custom' ? (Number(c.dailyInvestorPayout) || 0) : (Number(c.investorSplitPercent) || 0);
-  const agentPayout = c.hasAgent ? (c.dailyMethod === 'custom' ? (Number(c.dailyAgentPayout) || 0) : (Number(c.agentSplitPercent) || 0)) : 0;
+  const invPayout = c.dailyMethod === 'custom' ? (Number(c.dailyInvestorPayout) || 0) : rate * ((Number(c.investorSplitPercent) || 0) / 100);
+  const agentPayout = c.hasAgent ? (c.dailyMethod === 'custom' ? (Number(c.dailyAgentPayout) || 0) : rate * ((Number(c.agentSplitPercent) || 0) / 100)) : 0;
   const ownerDailyRate = Math.max(0, rate - invPayout - agentPayout);
   return { rate, invPayout, agentPayout, ownerDailyRate };
 }
@@ -2331,15 +2280,12 @@ function updateProfitLedgerData() {
       const rate = MONTHLY_CUSTOMER_RATE - INVESTOR_RATE - (c.hasAgent ? AGENT_COMMISSION_RATE : 0);
       ownerFraction = rate / MONTHLY_CUSTOMER_RATE;
     } else {
-      const customDailyRate = Number(c.dailyRate) || 0;
       const startD = c.startDate || c.createdAt?.slice(0, 10) || getLocalToday();
       const endD = c.endDate || getLocalToday();
       const elapsedDays = daysBetweenInclusive(startD, endD);
+      const { rate: customDailyRate, ownerDailyRate } = getDailyRates(c);
       accruedInterest = elapsedDays * customDailyRate;
-      
-      const dayInv = c.dailyMethod === 'custom' ? (Number(c.dailyInvestorPayout) || 0) : (Number(c.investorSplitPercent) || 0);
-      const dayAgent = c.hasAgent ? (c.dailyMethod === 'custom' ? (Number(c.dailyAgentPayout) || 0) : (Number(c.agentSplitPercent) || 0)) : 0;
-      ownerFraction = customDailyRate > 0 ? (Math.max(0, customDailyRate - dayInv - dayAgent) / customDailyRate) : 0;
+      ownerFraction = customDailyRate > 0 ? (ownerDailyRate / customDailyRate) : 0;
     }
     
     const interestPaid = getCustomerPaidInterest(c);
@@ -2433,15 +2379,12 @@ function downloadUnpaidInterestPDF() {
       const rate = MONTHLY_CUSTOMER_RATE - INVESTOR_RATE - (c.hasAgent ? AGENT_COMMISSION_RATE : 0);
       ownerFraction = rate / MONTHLY_CUSTOMER_RATE;
     } else {
-      const customDailyRate = Number(c.dailyRate) || 0;
       const startD = c.startDate || c.createdAt?.slice(0, 10) || getLocalToday();
       const endD = c.endDate || getLocalToday();
       const elapsedDays = daysBetweenInclusive(startD, endD);
+      const { rate: customDailyRate, ownerDailyRate } = getDailyRates(c);
       accruedInterest = elapsedDays * customDailyRate;
-      
-      const dayInv = c.dailyMethod === 'custom' ? (Number(c.dailyInvestorPayout) || 0) : (Number(c.investorSplitPercent) || 0);
-      const dayAgent = c.hasAgent ? (c.dailyMethod === 'custom' ? (Number(c.dailyAgentPayout) || 0) : (Number(c.agentSplitPercent) || 0)) : 0;
-      ownerFraction = customDailyRate > 0 ? (Math.max(0, customDailyRate - dayInv - dayAgent) / customDailyRate) : 0;
+      ownerFraction = customDailyRate > 0 ? (ownerDailyRate / customDailyRate) : 0;
     }
     
     const interestPaid = getCustomerPaidInterest(c);
@@ -2532,15 +2475,12 @@ function downloadUnpaidInterestPDF() {
       const rate = MONTHLY_CUSTOMER_RATE - INVESTOR_RATE - (c.hasAgent ? AGENT_COMMISSION_RATE : 0);
       ownerFraction = rate / MONTHLY_CUSTOMER_RATE;
     } else {
-      const customDailyRate = Number(c.dailyRate) || 0;
       const startD = c.startDate || c.createdAt?.slice(0, 10) || getLocalToday();
       const endD = c.endDate || getLocalToday();
       let elapsedDays = daysBetweenInclusive(startD, endD);
+      const { rate: customDailyRate, ownerDailyRate } = getDailyRates(c);
       accruedInterest = elapsedDays * customDailyRate;
-      
-      const dayInv = c.dailyMethod === 'custom' ? (Number(c.dailyInvestorPayout) || 0) : (Number(c.investorSplitPercent) || 0);
-      const dayAgent = c.hasAgent ? (c.dailyMethod === 'custom' ? (Number(c.dailyAgentPayout) || 0) : (Number(c.agentSplitPercent) || 0)) : 0;
-      ownerFraction = customDailyRate > 0 ? (Math.max(0, customDailyRate - dayInv - dayAgent) / customDailyRate) : 0;
+      ownerFraction = customDailyRate > 0 ? (ownerDailyRate / customDailyRate) : 0;
     }
 
     const interestPaid = getCustomerPaidInterest(c);
@@ -3865,10 +3805,7 @@ function renderCustomerList() {
             <div style="font-size:14px;font-weight:700;color:var(--emerald-400)">${fmt(monthlyInt)}</div>
             <div class="text-xs text-muted">${t('owner_prefix')}${fmt(ownerP)}</div>
           ` : (() => {
-            const dailyRate = Number(c.dailyRate) || 0;
-            const investorShare = c.dailyMethod === 'custom' ? (Number(c.dailyInvestorPayout) || 0) : (Number(c.investorSplitPercent) || 0);
-            const agentShare = c.hasAgent ? (c.dailyMethod === 'custom' ? (Number(c.dailyAgentPayout) || 0) : (Number(c.agentSplitPercent) || 0)) : 0;
-            const ownerShare = Math.max(0, dailyRate - investorShare - agentShare);
+            const { rate: dailyRate, ownerDailyRate: ownerShare } = getDailyRates(c);
             return `
               <div style="font-size:14px;font-weight:700;color:var(--emerald-400)">${fmt(dailyRate)}/${state.lang === 'ta' ? 'நாள்' : 'day'}</div>
               <div class="text-xs text-muted">${t('owner_prefix')}${fmt(ownerShare)}</div>
@@ -3943,10 +3880,7 @@ function renderCustomerList() {
               <div style="font-size:13px;font-weight:700;color:var(--emerald-400)">${fmt(monthlyInterest(p))}</div>
               <div class="text-xs text-muted">${t('owner_prefix')}${fmt(ownerProfit(c))}</div>
             ` : (() => {
-              const dailyRate = Number(c.dailyRate) || 0;
-              const investorShare = c.dailyMethod === 'custom' ? (Number(c.dailyInvestorPayout) || 0) : (Number(c.investorSplitPercent) || 0);
-              const agentShare = c.hasAgent ? (c.dailyMethod === 'custom' ? (Number(c.dailyAgentPayout) || 0) : (Number(c.agentSplitPercent) || 0)) : 0;
-              const ownerShare = Math.max(0, dailyRate - investorShare - agentShare);
+              const { rate: dailyRate, ownerDailyRate: ownerShare } = getDailyRates(c);
               return `
                 <div style="font-size:13px;font-weight:700;color:var(--emerald-400)">${fmt(dailyRate)}/${state.lang === 'ta' ? 'நாள்' : 'day'}</div>
                 <div class="text-xs text-muted">${t('owner_prefix')}${fmt(ownerShare)}</div>
@@ -4080,11 +4014,7 @@ function renderDetailPanel() {
     const totalTenureDays = daysBetweenInclusive(startD, tenureEndDate);
     const dmExpected = getDailyAccruedMetricsForRange(c, startD, tenureEndDate);
 
-    const dayInv = method === 'custom' && c.dailyInvestorPayout !== undefined && c.dailyInvestorPayout !== null ? (Number(c.dailyInvestorPayout) || 0) : (Number(c.investorSplitPercent) || 0);
-    const dayAgent = c.hasAgent ? (method === 'custom' && c.dailyAgentPayout !== undefined && c.dailyAgentPayout !== null ? (Number(c.dailyAgentPayout) || 0) : (Number(c.agentSplitPercent) || 0)) : 0;
-    
-    const grossDailyInterest = Number(c.dailyRate) || 0;
-    const currentOwnerRate = Math.max(0, grossDailyInterest - dayInv - dayAgent);
+    const { rate: grossDailyInterest, invPayout: dayInv, agentPayout: dayAgent, ownerDailyRate: currentOwnerRate } = getDailyRates(c);
 
     return `
     <div class="detail-section">
@@ -4310,8 +4240,8 @@ function renderDetailPanel() {
     const principalPaid = getCustomerPaidPrincipal(c);
     const remainingP = Math.max(0, parsedPrincipal - principalPaid);
     
-    // --- REQUIREMENT 3: Live Realized Profit Cumulative Tracker ---
-    const ownerFraction = customDailyRate > 0 ? ((Math.max(0, customDailyRate - ((c.dailyMethod === 'custom' ? Number(c.dailyInvestorPayout) : Number(c.investorSplitPercent)) || 0) - (c.hasAgent ? ((c.dailyMethod === 'custom' ? Number(c.dailyAgentPayout) : Number(c.agentSplitPercent)) || 0) : 0))) / customDailyRate) : 0;
+    const { rate, ownerDailyRate } = getDailyRates(c);
+    const ownerFraction = rate > 0 ? (ownerDailyRate / rate) : 0;
     
     const remainingInterestDue = (customDailyRate * elapsedDays - interestPaid) * ownerFraction;
     const remainingTotal = remainingP + remainingInterestDue;
@@ -4707,8 +4637,17 @@ function downloadLoanSummaryPDF(customerId) {
 
   doc.setFont("helvetica", "normal");
   doc.text("Investor Cost (Capital Liabilities)", 18, y + 6);
-  const invPct = c.loanType === 'monthly' ? '66.7' : (c.investorSplitPercent !== undefined && c.investorSplitPercent !== null ? Number(c.investorSplitPercent).toFixed(1) : '50.0');
-  const invLabel = c.loanType === 'monthly' ? `Share: ${invPct}%` : `Share: Rs. ${Number(invPct).toFixed(2)}/day`;
+  let invLabel = '';
+  if (c.loanType === 'monthly') {
+    invLabel = "Share: 66.7%";
+  } else {
+    if (c.dailyMethod === 'custom') {
+      invLabel = `Share: Rs. ${(Number(c.dailyInvestorPayout) || 0).toFixed(2)}/day`;
+    } else {
+      const invPct = c.investorSplitPercent !== undefined && c.investorSplitPercent !== null ? Number(c.investorSplitPercent).toFixed(1) : '50.0';
+      invLabel = `Share: ${invPct}%`;
+    }
+  }
   doc.text(invLabel, 90, y + 6);
   doc.text(`-${invCost.toLocaleString('en-IN')}`, 192, y + 6, { align: "right" });
   y += 8;
@@ -4716,10 +4655,21 @@ function downloadLoanSummaryPDF(customerId) {
 
   doc.setFont("helvetica", "normal");
   doc.text("Agent Referral Commission", 18, y + 6);
-  const agPct = c.loanType === 'monthly' ? (c.hasAgent ? '16.7' : '0.0') : (c.hasAgent ? (c.agentSplitPercent !== undefined && c.agentSplitPercent !== null ? Number(c.agentSplitPercent).toFixed(1) : '25.0') : '0.0');
-  const agLabel = c.hasAgent
-    ? (c.loanType === 'monthly' ? `Referral: ${c.agentName} (${agPct}%)` : `Referral: ${c.agentName} (Rs. ${Number(agPct).toFixed(2)}/day)`)
-    : "No Referral Agent";
+  let agLabel = '';
+  if (c.hasAgent) {
+    if (c.loanType === 'monthly') {
+      agLabel = `Referral: ${c.agentName} (16.7%)`;
+    } else {
+      if (c.dailyMethod === 'custom') {
+        agLabel = `Referral: ${c.agentName} (Rs. ${(Number(c.dailyAgentPayout) || 0).toFixed(2)}/day)`;
+      } else {
+        const agPct = c.agentSplitPercent !== undefined && c.agentSplitPercent !== null ? Number(c.agentSplitPercent).toFixed(1) : '25.0';
+        agLabel = `Referral: ${c.agentName} (${agPct}%)`;
+      }
+    }
+  } else {
+    agLabel = "No Referral Agent";
+  }
   const agLines = doc.splitTextToSize(agLabel, 95);
   doc.text(agLines, 90, y + 6);
   doc.text(`-${agComm.toLocaleString('en-IN')}`, 192, y + 6, { align: "right" });
@@ -4738,9 +4688,8 @@ function downloadLoanSummaryPDF(customerId) {
     const ownPct = c.hasAgent ? '16.7' : '33.3';
     ownLabel = `Arbitrage Margin: ${ownPct}%`;
   } else {
-    const grossDailyInterest = Number(c.dailyRate) || 0;
-    const currentOwnerRate = Math.max(0, grossDailyInterest - Number(c.dailyInvestorPayout || c.investorSplitPercent || 0) - (c.hasAgent ? Number(c.dailyAgentPayout || c.agentSplitPercent || 0) : 0));
-    ownLabel = `Arbitrage Margin: Rs. ${currentOwnerRate.toFixed(2)}/day`;
+    const { ownerDailyRate } = getDailyRates(c);
+    ownLabel = `Arbitrage Margin: Rs. ${ownerDailyRate.toFixed(2)}/day`;
   }
   const ownLines = doc.splitTextToSize(ownLabel, 95);
   doc.text(ownLines, 90, y + 6);
@@ -5434,13 +5383,7 @@ function calcDateRange(customerId) {
       const langIsTA = state.lang === 'ta';
       const method   = c.dailyMethod || 'split';
       
-      const dayInv = method === 'custom' && c.dailyInvestorPayout !== undefined && c.dailyInvestorPayout !== null ? (Number(c.dailyInvestorPayout) || 0) : (Number(c.investorSplitPercent) || 0);
-      const dayAgent = c.hasAgent ? (method === 'custom' && c.dailyAgentPayout !== undefined && c.dailyAgentPayout !== null ? (Number(c.dailyAgentPayout) || 0) : (Number(c.agentSplitPercent) || 0)) : 0;
-      
-      const today  = getLocalToday();
-      const activeP = getActivePrincipalForDate(c, today);
-      const grossDailyInterest = Number(c.dailyRate) || 0;
-      const currentOwnerRate = Math.max(0, grossDailyInterest - dayInv - dayAgent);
+      const { rate: grossDailyInterest, invPayout: dayInv, agentPayout: dayAgent, ownerDailyRate: currentOwnerRate } = getDailyRates(c);
 
       splitEl.innerHTML = `
         <div class="profit-row gross">
