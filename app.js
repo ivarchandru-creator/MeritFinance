@@ -2586,7 +2586,7 @@ function downloadMonthlyPerformanceStatement() {
           .filter(p => (p.type === 'interest' || p.type === 'Interest') && p.date <= toVal && (p.status === 'Paid' || !p.status))
           .reduce((s, p) => s + (Number(p.amount) || 0), 0);
 
-        ownerPending = (accrued - totalPaid) * ownerFraction;
+        ownerPending = Math.max(0, accrued - totalPaid) * ownerFraction;
       } else {
         const rate = MONTHLY_CUSTOMER_RATE - INVESTOR_RATE - (c.hasAgent ? AGENT_COMMISSION_RATE : 0);
         const ownerFraction = rate / MONTHLY_CUSTOMER_RATE;
@@ -2961,28 +2961,26 @@ function downloadDailyInterestPortfolioStatement() {
 
     // Accrued and Paid calculations
     const startD = c.startDate || c.createdAt?.slice(0, 10) || today;
-    const endD = c.status === 'closed' ? (c.endDate || today) : today;
+    const endD = c.endDate || today;
     const daysActive = daysBetweenInclusive(startD, endD);
     const { rate: dRate, invPayout: dInv, agentPayout: dAgent } = getDailyRates(c);
     const ownerDailyRate = Math.max(0, dRate - dInv - dAgent);
-    const totalOwnerProfit = daysActive * ownerDailyRate;
+    const totalAccrued = daysActive * ownerDailyRate;
     const ownerFraction = dRate > 0 ? (ownerDailyRate / dRate) : 0;
 
     const ownerCollected = collectedInMonth * ownerFraction;
-    const totalPaidGross = getCustomerPaidInterest(c);
-    const ownerPaidOverall = totalPaidGross * ownerFraction;
-
-    const remainingDue = totalOwnerProfit - ownerPaidOverall;
+    const totalAmountPaidThisMonth = ownerCollected;
+    const dynamicPending = Math.max(0, totalAccrued - totalAmountPaidThisMonth);
 
     totalDailyRealizedProfit += ownerCollected;
-    totalDailyPendingPayments += Math.max(0, remainingDue);
+    totalDailyPendingPayments += dynamicPending;
 
     listData.push({
       name: c.name || 'Unknown',
       adaguId: c.adaguId || '—',
       principal: Number(c.principal) || 0,
       collected: ownerCollected,
-      remaining: remainingDue
+      remaining: dynamicPending
     });
   }
 
@@ -3658,14 +3656,11 @@ function getAccruedInterestUpTo(c, targetDate) {
       totalInterest += (activeP * MONTHLY_CUSTOMER_RATE) / 100;
     }
     
-    // Add current month (if active/open and not marked paid)
+    // Add current month (if active/open)
     if (c.status !== 'closed' && targetDate >= getLocalToday()) {
       const currentMonthIdx = totalMonths + 1;
       const activeP = getActivePrincipalForMonth(c, currentMonthIdx);
-      const isPaid = !!c.currentMonthInterestPaid;
-      if (!isPaid) {
-        totalInterest += (activeP * MONTHLY_CUSTOMER_RATE) / 100;
-      }
+      totalInterest += (activeP * MONTHLY_CUSTOMER_RATE) / 100;
     }
     
     return Math.round(totalInterest);
@@ -3690,10 +3685,7 @@ function getAccruedInvestorCostUpTo(c, targetDate) {
     if (c.status !== 'closed' && targetDate >= getLocalToday()) {
       const currentMonthIdx = totalMonths + 1;
       const activeP = getActivePrincipalForMonth(c, currentMonthIdx);
-      const isPaid = !!c.currentMonthInterestPaid;
-      if (!isPaid) {
-        total += (activeP * INVESTOR_RATE) / 100;
-      }
+      total += (activeP * INVESTOR_RATE) / 100;
     }
     return Math.round(total);
   } else {
@@ -3718,10 +3710,7 @@ function getAccruedAgentCommissionUpTo(c, targetDate) {
     if (c.status !== 'closed' && targetDate >= getLocalToday()) {
       const currentMonthIdx = totalMonths + 1;
       const activeP = getActivePrincipalForMonth(c, currentMonthIdx);
-      const isPaid = !!c.currentMonthInterestPaid;
-      if (!isPaid) {
-        total += (activeP * AGENT_COMMISSION_RATE) / 100;
-      }
+      total += (activeP * AGENT_COMMISSION_RATE) / 100;
     }
     return Math.round(total);
   } else {
@@ -4468,7 +4457,7 @@ function downloadLoanSummaryPDF(customerId) {
   const interestPaid = Number(c.paidInterest) || 0;
   const principalPaid = Number(c.paidPrincipal) || 0;
   const totalPaid = interestPaid + principalPaid;
-  const remaining = Math.round(p + getAccruedInterest(c) - interestPaid - principalPaid);
+  const remaining = Math.max(0, Math.round(p + getAccruedInterest(c) - interestPaid - principalPaid));
 
   // Colors & Design
   // Header banner
@@ -4854,7 +4843,7 @@ function downloadCustomerReceiptPDF(customerId) {
   const interestPaid = Number(c.paidInterest) || 0;
   const principalPaid = Number(c.paidPrincipal) || 0;
   const totalPaid = interestPaid + principalPaid;
-  const remaining = Math.round(p + getAccruedInterest(c) - interestPaid - principalPaid);
+  const remaining = Math.max(0, Math.round(p + getAccruedInterest(c) - interestPaid - principalPaid));
 
   // Colors & Design
   // Header banner (Dark Slate)
