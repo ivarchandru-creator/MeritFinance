@@ -3017,7 +3017,7 @@ function downloadDailyInterestPortfolioStatement() {
     const dynamicPending = Math.max(0, totalAccrued - totalAmountPaidThisMonth);
 
     // Dynamic Expected Yield Formula (Based on Selected Loan Days Only)
-    const totalContractDays = Math.ceil((new Date(endD) - new Date(startD)) / (1000 * 60 * 60 * 24));
+    const totalContractDays = Math.ceil((new Date(endD) - new Date(startD)) / (1000 * 60 * 60 * 24)) + 1;
     const dynamicExpectedYield = totalContractDays * ownerDailyRate;
 
     totalDailyRealizedProfit += ownerCollected;
@@ -3086,13 +3086,12 @@ function downloadDailyInterestPortfolioStatement() {
 
   // Right KPI: Total Expected Interest
   doc.setTextColor(100, 116, 139); // slate-500
-  doc.setFontSize(6.5);
+  doc.setFontSize(7.5);
   doc.setFont("helvetica", "bold");
-  doc.text("TOTAL EXPECTED INTEREST", 137, y + 7);
-  doc.text("(மொத்த சாத்தியமான வட்டி)", 137, y + 11);
+  doc.text("TOTAL EXPECTED INTEREST", 137, y + 8);
   doc.setTextColor(217, 119, 6); // amber-600
   doc.setFontSize(12);
-  doc.text(formatPdfVal(totalDailyExpectedProfit), 137, y + 19);
+  doc.text(formatPdfVal(totalDailyExpectedProfit), 137, y + 18);
 
   y += 38;
 
@@ -3112,11 +3111,12 @@ function downloadDailyInterestPortfolioStatement() {
   doc.setFontSize(9);
   doc.setFont("helvetica", "bold");
   doc.text("CUSTOMER NAME", 18, y + 5.5);
-  doc.text("ADAGU ID", 55, y + 5.5);
-  doc.text("PRINCIPAL (RS.)", 88, y + 5.5, { align: "right" });
-  doc.text("OWNER PROFIT", 120, y + 5.5, { align: "right" });
-  doc.text("PENDING PROFIT", 155, y + 5.5, { align: "right" });
-  doc.text("TOTAL EXPECTED INTEREST", 195, y + 5.5, { align: "right" });
+  doc.text("ADAGU ID", 60, y + 5.5);
+  doc.text("PRINCIPAL (RS.)", 110, y + 5.5, { align: "right" });
+  doc.text("OWNER PROFIT", 138, y + 5.5, { align: "right" });
+  doc.text("PENDING PROFIT", 166, y + 5.5, { align: "right" });
+  doc.text("TOTAL EXPECTED", 195, y + 3.5, { align: "right" });
+  doc.text("INTEREST", 195, y + 7.5, { align: "right" });
 
   y += 8;
 
@@ -3139,11 +3139,12 @@ function downloadDailyInterestPortfolioStatement() {
         doc.setFont("helvetica", "bold");
         doc.setFontSize(9);
         doc.text("CUSTOMER NAME", 18, y + 5.5);
-        doc.text("ADAGU ID", 55, y + 5.5);
-        doc.text("PRINCIPAL (RS.)", 88, y + 5.5, { align: "right" });
-        doc.text("OWNER PROFIT", 120, y + 5.5, { align: "right" });
-        doc.text("PENDING PROFIT", 155, y + 5.5, { align: "right" });
-        doc.text("TOTAL EXPECTED INTEREST", 195, y + 5.5, { align: "right" });
+        doc.text("ADAGU ID", 60, y + 5.5);
+        doc.text("PRINCIPAL (RS.)", 110, y + 5.5, { align: "right" });
+        doc.text("OWNER PROFIT", 138, y + 5.5, { align: "right" });
+        doc.text("PENDING PROFIT", 166, y + 5.5, { align: "right" });
+        doc.text("TOTAL EXPECTED", 195, y + 3.5, { align: "right" });
+        doc.text("INTEREST", 195, y + 7.5, { align: "right" });
 
         y += 8;
         doc.setFont("helvetica", "normal");
@@ -3152,15 +3153,15 @@ function downloadDailyInterestPortfolioStatement() {
       doc.setFontSize(8.5);
       const wrappedName = doc.splitTextToSize(row.name, 35);
       doc.text(wrappedName, 18, y + 5);
-      doc.text(`#${row.adaguId}`, 55, y + 5);
-      doc.text(row.principal.toLocaleString('en-IN'), 88, y + 5, { align: "right" });
-      doc.text(formatPdfVal(row.collected), 120, y + 5, { align: "right" });
+      doc.text(`#${row.adaguId}`, 60, y + 5);
+      doc.text(row.principal.toLocaleString('en-IN'), 110, y + 5, { align: "right" });
+      doc.text(formatPdfVal(row.collected), 138, y + 5, { align: "right" });
 
       if (row.remaining > 0) {
         doc.setFont("helvetica", "bold");
         doc.setTextColor(185, 28, 28); // rose-700
       }
-      doc.text(formatPdfVal(row.remaining), 155, y + 5, { align: "right" });
+      doc.text(formatPdfVal(row.remaining), 166, y + 5, { align: "right" });
       doc.setTextColor(51, 51, 51);
       doc.setFont("helvetica", "normal");
 
@@ -3551,7 +3552,7 @@ function downloadDailyInterestMonthReport(monthName, startDate, endDate) {
     
     // Dynamic Expected Yield Formula (Based on Selected Loan Days Only)
     const endDForContract = c.endDate || toVal;
-    const totalContractDays = Math.ceil((new Date(endDForContract) - new Date(startD)) / (1000 * 60 * 60 * 24));
+    const totalContractDays = Math.ceil((new Date(endDForContract) - new Date(startD)) / (1000 * 60 * 60 * 24)) + 1;
     const dynamicExpectedYield = totalContractDays * ownerDailyRate;
 
     totalDailyRealizedProfit += ownerCollected;
@@ -3620,13 +3621,12 @@ function downloadDailyInterestMonthReport(monthName, startDate, endDate) {
 
   // Right KPI: Total Expected Interest
   doc.setTextColor(100, 116, 139); // slate-500
-  doc.setFontSize(6.5);
+  doc.setFontSize(7.5);
   doc.setFont("helvetica", "bold");
-  doc.text("TOTAL EXPECTED INTEREST", 137, y + 7);
-  doc.text("(மொத்த சாத்தியமான வட்டி)", 137, y + 11);
+  doc.text("TOTAL EXPECTED INTEREST", 137, y + 8);
   doc.setTextColor(217, 119, 6); // amber-600
   doc.setFontSize(12);
-  doc.text(formatPdfVal(totalDailyExpectedProfit), 137, y + 19);
+  doc.text(formatPdfVal(totalDailyExpectedProfit), 137, y + 18);
 
   y += 38;
 
@@ -3646,11 +3646,12 @@ function downloadDailyInterestMonthReport(monthName, startDate, endDate) {
   doc.setFontSize(9);
   doc.setFont("helvetica", "bold");
   doc.text("CUSTOMER NAME", 18, y + 5.5);
-  doc.text("ADAGU ID", 55, y + 5.5);
-  doc.text("PRINCIPAL (RS.)", 88, y + 5.5, { align: "right" });
-  doc.text("OWNER PROFIT", 120, y + 5.5, { align: "right" });
-  doc.text("PENDING PROFIT", 155, y + 5.5, { align: "right" });
-  doc.text("TOTAL EXPECTED INTEREST", 195, y + 5.5, { align: "right" });
+  doc.text("ADAGU ID", 60, y + 5.5);
+  doc.text("PRINCIPAL (RS.)", 110, y + 5.5, { align: "right" });
+  doc.text("OWNER PROFIT", 138, y + 5.5, { align: "right" });
+  doc.text("PENDING PROFIT", 166, y + 5.5, { align: "right" });
+  doc.text("TOTAL EXPECTED", 195, y + 3.5, { align: "right" });
+  doc.text("INTEREST", 195, y + 7.5, { align: "right" });
 
   y += 8;
 
@@ -3673,11 +3674,12 @@ function downloadDailyInterestMonthReport(monthName, startDate, endDate) {
         doc.setFont("helvetica", "bold");
         doc.setFontSize(9);
         doc.text("CUSTOMER NAME", 18, y + 5.5);
-        doc.text("ADAGU ID", 55, y + 5.5);
-        doc.text("PRINCIPAL (RS.)", 88, y + 5.5, { align: "right" });
-        doc.text("OWNER PROFIT", 120, y + 5.5, { align: "right" });
-        doc.text("PENDING PROFIT", 155, y + 5.5, { align: "right" });
-        doc.text("TOTAL EXPECTED INTEREST", 195, y + 5.5, { align: "right" });
+        doc.text("ADAGU ID", 60, y + 5.5);
+        doc.text("PRINCIPAL (RS.)", 110, y + 5.5, { align: "right" });
+        doc.text("OWNER PROFIT", 138, y + 5.5, { align: "right" });
+        doc.text("PENDING PROFIT", 166, y + 5.5, { align: "right" });
+        doc.text("TOTAL EXPECTED", 195, y + 3.5, { align: "right" });
+        doc.text("INTEREST", 195, y + 7.5, { align: "right" });
 
         y += 8;
         doc.setFont("helvetica", "normal");
@@ -3686,15 +3688,15 @@ function downloadDailyInterestMonthReport(monthName, startDate, endDate) {
       doc.setFontSize(8.5);
       const wrappedName = doc.splitTextToSize(row.name, 35);
       doc.text(wrappedName, 18, y + 5);
-      doc.text(`#${row.adaguId}`, 55, y + 5);
-      doc.text(row.principal.toLocaleString('en-IN'), 88, y + 5, { align: "right" });
-      doc.text(formatPdfVal(row.collected), 120, y + 5, { align: "right" });
+      doc.text(`#${row.adaguId}`, 60, y + 5);
+      doc.text(row.principal.toLocaleString('en-IN'), 110, y + 5, { align: "right" });
+      doc.text(formatPdfVal(row.collected), 138, y + 5, { align: "right" });
 
       if (row.remaining > 0) {
         doc.setFont("helvetica", "bold");
         doc.setTextColor(185, 28, 28); // rose-700
       }
-      doc.text(formatPdfVal(row.remaining), 155, y + 5, { align: "right" });
+      doc.text(formatPdfVal(row.remaining), 166, y + 5, { align: "right" });
       doc.setTextColor(51, 51, 51);
       doc.setFont("helvetica", "normal");
 
