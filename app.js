@@ -2657,11 +2657,11 @@ function downloadMonthlyPerformanceStatement() {
     });
   }
 
-  // Format helper for ₹0 check
+  // Format helper for Rs. 0 check
   const formatPdfVal = (val) => {
     const v = Math.round(val);
-    if (v === 0) return "₹0";
-    return (v < 0 ? "-" : "") + "₹" + Math.abs(v).toLocaleString('en-IN');
+    if (v === 0) return "Rs. 0";
+    return (v < 0 ? "-" : "") + "Rs. " + Math.abs(v).toLocaleString('en-IN');
   };
 
   // 1. Draw Header Banner
@@ -2819,8 +2819,12 @@ function downloadMonthlyInterestPortfolioStatement() {
     const agentShare = c.hasAgent ? (collected * (AGENT_COMMISSION_RATE / MONTHLY_CUSTOMER_RATE)) : 0;
     const NetOwnerProfit = Number(collected) - Number(agentShare) - Number(investorShare);
 
+    const investorPendingShare = unpaid * (INVESTOR_RATE / MONTHLY_CUSTOMER_RATE);
+    const agentPendingShare = c.hasAgent ? (unpaid * (AGENT_COMMISSION_RATE / MONTHLY_CUSTOMER_RATE)) : 0;
+    const NetOwnerPendingProfit = Number(unpaid) - Number(agentPendingShare) - Number(investorPendingShare);
+
     totalMonthlyRealizedProfit += NetOwnerProfit;
-    totalMonthlyPendingPayments += unpaid;
+    totalMonthlyPendingPayments += NetOwnerPendingProfit;
 
     listData.push({
       name: c.name || 'Unknown',
@@ -2829,15 +2833,17 @@ function downloadMonthlyInterestPortfolioStatement() {
       collectedInterest: collected,
       investorShare: investorShare,
       agentShare: agentShare,
-      unpaid: unpaid
+      unpaid: unpaid,
+      investorPendingShare: investorPendingShare,
+      agentPendingShare: agentPendingShare
     });
   }
 
-  // Format helper to ensure absolute zero-baseline rendering (₹0 for zero values)
+  // Format helper to ensure absolute zero-baseline rendering (Rs. 0 for zero values)
   const formatPdfVal = (val) => {
     const v = Math.round(val);
-    if (v === 0) return "₹0";
-    return (v < 0 ? "-" : "") + "₹" + Math.abs(v).toLocaleString('en-IN');
+    if (v === 0) return "Rs. 0";
+    return (v < 0 ? "-" : "") + "Rs. " + Math.abs(v).toLocaleString('en-IN');
   };
 
   // 1. Draw Header Banner
@@ -2873,11 +2879,11 @@ function downloadMonthlyInterestPortfolioStatement() {
   doc.setFontSize(14);
   doc.text(formatPdfVal(totalMonthlyRealizedProfit), 20, y + 18);
 
-  // Right KPI: Monthly Pending Payments
+  // Right KPI: Monthly Pending Owner Profit
   doc.setTextColor(100, 116, 139); // slate-500
   doc.setFontSize(8.5);
   doc.setFont("helvetica", "bold");
-  doc.text("MONTHLY PENDING PAYMENTS (UNPAID)", 110, y + 8);
+  doc.text("MONTHLY PENDING OWNER PROFIT", 110, y + 8);
   doc.setTextColor(185, 28, 28); // rose-700
   doc.setFontSize(14);
   doc.text(formatPdfVal(totalMonthlyPendingPayments), 110, y + 18);
@@ -2900,10 +2906,10 @@ function downloadMonthlyInterestPortfolioStatement() {
   doc.setFontSize(9);
   doc.setFont("helvetica", "bold");
   doc.text("MONTHLY CUSTOMERS", 18, y + 5.5);
-  doc.text("ADAGU ID", 72, y + 5.5);
-  doc.text("PRINCIPAL (RS.)", 112, y + 5.5, { align: "right" });
-  doc.text("OWNER PROFIT", 154, y + 5.5, { align: "right" });
-  doc.text("CURRENT UNPAID DUE", 192, y + 5.5, { align: "right" });
+  doc.text("ADAGU ID", 75, y + 5.5);
+  doc.text("PRINCIPAL (RS.)", 120, y + 5.5, { align: "right" });
+  doc.text("OWNER PROFIT", 155, y + 5.5, { align: "right" });
+  doc.text("PENDING OWNER PROFIT", 195, y + 5.5, { align: "right" });
 
   y += 8;
 
@@ -2926,10 +2932,10 @@ function downloadMonthlyInterestPortfolioStatement() {
         doc.setFont("helvetica", "bold");
         doc.setFontSize(9);
         doc.text("MONTHLY CUSTOMERS", 18, y + 5.5);
-        doc.text("ADAGU ID", 72, y + 5.5);
-        doc.text("PRINCIPAL (RS.)", 112, y + 5.5, { align: "right" });
-        doc.text("OWNER PROFIT", 154, y + 5.5, { align: "right" });
-        doc.text("CURRENT UNPAID DUE", 192, y + 5.5, { align: "right" });
+        doc.text("ADAGU ID", 75, y + 5.5);
+        doc.text("PRINCIPAL (RS.)", 120, y + 5.5, { align: "right" });
+        doc.text("OWNER PROFIT", 155, y + 5.5, { align: "right" });
+        doc.text("PENDING OWNER PROFIT", 195, y + 5.5, { align: "right" });
 
         y += 8;
         doc.setFont("helvetica", "normal");
@@ -2938,17 +2944,18 @@ function downloadMonthlyInterestPortfolioStatement() {
       doc.setFontSize(8.5);
       const wrappedName = doc.splitTextToSize(row.name, 50);
       doc.text(wrappedName, 18, y + 5);
-      doc.text(`#${row.adaguId}`, 72, y + 5);
-      doc.text(row.principal.toLocaleString('en-IN'), 112, y + 5, { align: "right" });
+      doc.text(`#${row.adaguId}`, 75, y + 5);
+      doc.text(row.principal.toLocaleString('en-IN'), 120, y + 5, { align: "right" });
 
       const NetOwnerProfit = Number(row.collectedInterest) - Number(row.agentShare || 0) - Number(row.investorShare || 0);
-      doc.text(formatPdfVal(NetOwnerProfit), 154, y + 5, { align: "right" });
+      doc.text(formatPdfVal(NetOwnerProfit), 155, y + 5, { align: "right" });
 
-      if (row.unpaid > 0) {
+      const NetOwnerPendingProfit = Number(row.unpaid) - Number(row.agentPendingShare || 0) - Number(row.investorPendingShare || 0);
+      if (NetOwnerPendingProfit > 0) {
         doc.setFont("helvetica", "bold");
         doc.setTextColor(185, 28, 28); // rose-700
       }
-      doc.text(formatPdfVal(row.unpaid), 192, y + 5, { align: "right" });
+      doc.text(formatPdfVal(NetOwnerPendingProfit), 195, y + 5, { align: "right" });
       doc.setTextColor(51, 51, 51);
       doc.setFont("helvetica", "normal");
 
