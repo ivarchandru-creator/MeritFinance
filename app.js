@@ -893,9 +893,19 @@ function getActivePrincipalForMonth(c, monthIndex) {
   if (!c) return 0;
   const p = Number(c.principal) || 0;
   
-  // Return the remaining principal base: principal - total principal paid to date
-  const paid = getCustomerPaidPrincipal(c);
-  return Math.max(0, p - paid);
+  if (monthIndex === undefined || monthIndex === null) {
+    const paid = getCustomerPaidPrincipal(c);
+    return Math.max(0, p - paid);
+  }
+  
+  const startDate = c.startDate || c.createdAt?.slice(0, 10) || getLocalToday();
+  const endD = addDays(startDate, monthIndex * 30);
+  
+  const paidInPeriod = (c.payments || [])
+    .filter(pay => (pay.type === 'principal' || pay.type === 'Principal') && (pay.status === 'Paid' || !p.status) && pay.date <= endD)
+    .reduce((sum, pay) => sum + (Number(pay.amount) || 0), 0);
+    
+  return Math.max(0, p - paidInPeriod);
 }
 
 function getCurrentMonthIndex(c) {
@@ -1061,7 +1071,17 @@ function deleteMonthlyPayment(customerId, paymentId) {
 /** Monthly interest owed by a customer per month */
 function monthlyInterest(cOrPrincipal) {
   if (typeof cOrPrincipal === 'object' && cOrPrincipal !== null) {
-    const remainingP = getActivePrincipalForMonth(cOrPrincipal);
+    const c = cOrPrincipal;
+    if (c.currentMonthInterestPaid) {
+      const todayStr = getLocalToday();
+      const monthPrefix = todayStr.slice(0, 7); // e.g. "2026-06"
+      const pRecord = (c.payments || []).find(p => p.type === 'interest' && p.date.startsWith(monthPrefix));
+      if (pRecord) {
+        return Number(pRecord.amount) || 0;
+      }
+    }
+    const currentMonthIdx = getCurrentMonthIndex(c);
+    const remainingP = getActivePrincipalForMonth(c, currentMonthIdx);
     return (remainingP * MONTHLY_CUSTOMER_RATE) / 100;
   }
   return (Number(cOrPrincipal) * MONTHLY_CUSTOMER_RATE) / 100;
@@ -1071,9 +1091,13 @@ function monthlyInterest(cOrPrincipal) {
 function investorCost(principalOrCustomer, days) {
   if (typeof principalOrCustomer === 'object' && principalOrCustomer !== null) {
     const c = principalOrCustomer;
-    const p = Number(c.principal);
-    // ── FIXED ARBITRAGE: always 2% of principal, no custom overrides ──
-    return (p * INVESTOR_RATE) / 100;
+    if (c.currentMonthInterestPaid) {
+      const gross = monthlyInterest(c);
+      return gross * (2 / 3);
+    }
+    const currentMonthIdx = getCurrentMonthIndex(c);
+    const remainingP = getActivePrincipalForMonth(c, currentMonthIdx);
+    return (remainingP * INVESTOR_RATE) / 100;
   }
   return (Number(principalOrCustomer) * INVESTOR_RATE) / 100;
 }
@@ -1082,10 +1106,14 @@ function investorCost(principalOrCustomer, days) {
 function agentCommission(principalOrCustomer, customRate, days) {
   if (typeof principalOrCustomer === 'object' && principalOrCustomer !== null) {
     const c = principalOrCustomer;
-    const p = Number(c.principal);
-    // ── FIXED ARBITRAGE: always 0.5% of principal if agent present, else 0 ──
     if (!c.hasAgent) return 0;
-    return (p * AGENT_COMMISSION_RATE) / 100;
+    if (c.currentMonthInterestPaid) {
+      const gross = monthlyInterest(c);
+      return gross * (0.5 / 3);
+    }
+    const currentMonthIdx = getCurrentMonthIndex(c);
+    const remainingP = getActivePrincipalForMonth(c, currentMonthIdx);
+    return (remainingP * AGENT_COMMISSION_RATE) / 100;
   }
   const p = Number(principalOrCustomer);
   const rate = customRate !== undefined && customRate !== null ? Number(customRate) : AGENT_COMMISSION_RATE;
@@ -1096,11 +1124,16 @@ function agentCommission(principalOrCustomer, customRate, days) {
 function ownerProfit(principalOrCustomer, hasAgent, optAgentRate) {
   if (typeof principalOrCustomer === 'object' && principalOrCustomer !== null) {
     const c = principalOrCustomer;
-    const p = Number(c.principal);
-    // ── FIXED ARBITRAGE: 3% - 2% - 0.5%(agent) = 0.5% or 1.0% ──
-    // No custom split overrides allowed for monthly loans
+    if (c.currentMonthInterestPaid) {
+      const gross = monthlyInterest(c);
+      const inv = gross * (2 / 3);
+      const agent = c.hasAgent ? gross * (0.5 / 3) : 0;
+      return Math.max(0, gross - inv - agent);
+    }
+    const currentMonthIdx = getCurrentMonthIndex(c);
+    const remainingP = getActivePrincipalForMonth(c, currentMonthIdx);
     const rate = MONTHLY_CUSTOMER_RATE - INVESTOR_RATE - (c.hasAgent ? AGENT_COMMISSION_RATE : 0);
-    return (p * rate) / 100;
+    return (remainingP * rate) / 100;
   }
   // Scalar fallback (used for ad-hoc calculations)
   const p = Number(principalOrCustomer);
@@ -1382,12 +1415,10 @@ function computeMetrics() {
 
   for (const c of activeCustomers) {
     if (c.currentMonthInterestPaid) {
-      const activeP = getActivePrincipalForMonth(c);
-      grossMonthly    += (activeP * MONTHLY_CUSTOMER_RATE) / 100;
-      investorMonthly += (activeP * INVESTOR_RATE) / 100;
-      agentMonthly    += c.hasAgent ? (activeP * AGENT_COMMISSION_RATE) / 100 : 0;
-      const rate = MONTHLY_CUSTOMER_RATE - INVESTOR_RATE - (c.hasAgent ? AGENT_COMMISSION_RATE : 0);
-      netMonthly      += (activeP * rate) / 100;
+      grossMonthly    += monthlyInterest(c);
+      investorMonthly += investorCost(c);
+      agentMonthly    += agentCommission(c);
+      netMonthly      += ownerProfit(c);
     }
   }
 
