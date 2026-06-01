@@ -2215,15 +2215,7 @@ body.light-mode .auth-screen {
     max-width: none;
   }
 }
-
-@media (max-width: 768px) {
-  .desktop-table-view {
-    display: none;
-  }
-  .mobile-cards-view {
-    display: block;
-  }
-}
+/* Mobile table visibility is handled by consolidated overrides */
 
 /* Google Sheets Sync Integration CSS */
 .modal-tabs {
@@ -2407,78 +2399,222 @@ body.light-mode .auth-screen {
     font-size: 13px !important;
     height: 36px !important;
   }
-  /* KPI Cards Styling for Mobile */
+
+  /* 1. Dashboard Row Separation (Monthly vs. Daily Layout) */
   .metrics-layout {
-    display: grid !important;
-    grid-template-columns: 1fr 1fr !important;
-    gap: 12px !important;
-    margin-bottom: 0 !important;
-    height: calc(100vh - 165px) !important;
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 16px !important;
+    margin-bottom: 16px !important;
+    height: auto !important;
+    width: 100% !important;
     box-sizing: border-box !important;
   }
   .metrics-section {
     display: flex !important;
     flex-direction: column !important;
-    height: 100% !important;
-  }
-  .metrics-cards-container {
-    display: flex !important;
-    flex-direction: column !important;
-    gap: 10px !important;
-    flex: 1 !important;
+    width: 100% !important;
+    height: auto !important;
   }
   .metrics-title {
-    font-size: 13px !important;
+    font-size: 11px !important;
     font-weight: 700 !important;
     margin-bottom: 8px !important;
     letter-spacing: 0.5px !important;
     text-transform: uppercase !important;
     color: var(--text-secondary) !important;
   }
+  .metrics-cards-container {
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 8px !important;
+    width: 100% !important;
+    flex: none !important;
+  }
   .kpi-card {
     display: flex !important;
     flex-direction: column !important;
     justify-content: space-between !important;
-    padding: 16px 14px !important;
-    border-radius: var(--radius-md) !important;
-    flex: 1 !important;
+    padding: 12px 14px !important;
+    border-radius: 12px !important;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05) !important;
+    border: 1px solid var(--border-card) !important;
+    width: 100% !important;
+    box-sizing: border-box !important;
     min-height: 0 !important;
+    flex: none !important;
+    gap: 4px !important;
   }
   .kpi-header {
-    margin-bottom: 4px !important;
     display: flex !important;
+    flex-direction: row-reverse !important;
     justify-content: space-between !important;
     align-items: center !important;
     width: 100% !important;
+    margin-bottom: 4px !important;
   }
   .kpi-label {
-    font-size: 13px !important;
-    line-height: 1.2 !important;
+    font-size: 9px !important;
     font-weight: 700 !important;
+    text-transform: uppercase !important;
+    color: var(--text-muted) !important;
+    letter-spacing: 0.5px !important;
   }
   .kpi-value {
-    font-size: 26px !important;
+    font-size: 20px !important;
     font-weight: 800 !important;
-    margin: 4px 0 !important;
+    margin: 2px 0 !important;
     line-height: 1.1 !important;
   }
   .kpi-meta {
-    font-size: 11px !important;
-    margin-top: auto !important;
+    font-size: 9px !important;
+    margin-top: 0 !important;
     line-height: 1.2 !important;
+    color: var(--text-muted) !important;
   }
   .kpi-icon {
-    width: 32px !important;
-    height: 32px !important;
+    width: 22px !important;
+    height: 22px !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
   }
 
-  /* Dashboard Grid Stacking & Compact Presentation */
+  /* 2. Simple & Clean UI Typography & Swipeable Tables */
+  .desktop-table-view {
+    display: block !important;
+  }
+  .mobile-cards-view {
+    display: none !important;
+  }
+  .desktop-table-view > .card {
+    padding: 0 !important;
+    overflow: hidden !important;
+    border-radius: 12px !important;
+  }
+  .desktop-table-view > .card > div {
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch !important;
+  }
+  .data-table {
+    font-size: 11px !important;
+    width: 100% !important;
+  }
+  .data-table thead th {
+    font-size: 9px !important;
+    padding: 8px 10px !important;
+    letter-spacing: 0.3px !important;
+  }
+  .data-table tbody td {
+    padding: 8px 10px !important;
+    font-size: 11px !important;
+  }
+  .data-table tbody td .customer-cell {
+    gap: 8px !important;
+  }
+  .data-table tbody td .avatar {
+    width: 28px !important;
+    height: 28px !important;
+    font-size: 10px !important;
+  }
+  .data-table tbody td .avatar-img {
+    width: 28px !important;
+    height: 28px !important;
+  }
+  .data-table tbody td .badge {
+    padding: 2px 6px !important;
+    font-size: 9px !important;
+    border-radius: 6px !important;
+  }
+  .data-table tbody td .btn {
+    min-height: 26px !important;
+    height: 26px !important;
+    padding: 2px 8px !important;
+    font-size: 9px !important;
+    border-radius: 6px !important;
+  }
+
+  /* 3. Centralized Bottom-Sheets Modals on Mobile */
+  .modal-overlay {
+    align-items: flex-end !important;
+    padding: 0 !important;
+  }
+  .modal {
+    max-width: 100% !important;
+    max-height: 88vh !important;
+    border-radius: 20px 20px 0 0 !important;
+    transform: scale(1) translateY(100%) !important;
+    transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1) !important;
+    border-left: none !important;
+    border-right: none !important;
+    border-bottom: none !important;
+  }
+  .modal-overlay.open .modal {
+    transform: scale(1) translateY(0) !important;
+  }
+  .modal-header {
+    padding: 16px 20px 12px !important;
+    position: relative !important;
+  }
+  .modal-header::before {
+    content: "" !important;
+    position: absolute !important;
+    top: 6px !important;
+    left: 50% !important;
+    transform: translateX(-50%) !important;
+    width: 36px !important;
+    height: 4px !important;
+    background: var(--border-default, rgba(255,255,255,0.15)) !important;
+    border-radius: 2px !important;
+  }
+  .modal-title {
+    font-size: 15px !important;
+  }
+  .modal-body {
+    padding: 16px 20px 40px !important;
+  }
+  .modal-footer {
+    padding: 12px 20px 24px !important;
+    background: var(--bg-modal) !important;
+    position: sticky !important;
+    bottom: 0 !important;
+    z-index: 10 !important;
+  }
+
+  /* 4. Touch Targets & Other Layout Refinement */
+  button, .btn, .badge, .toggle-opt, .switch-row, .nav-item, .interest-breakdown-row, .annual-breakdown-row, .aggregate-row {
+    touch-action: manipulation !important;
+  }
+  .filter-tabs {
+    display: flex !important;
+    gap: 4px !important;
+    width: 100% !important;
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch !important;
+    padding-bottom: 4px !important;
+  }
+  .filter-tab {
+    padding: 6px 12px !important;
+    font-size: 12px !important;
+    white-space: nowrap !important;
+    flex: 0 0 auto !important;
+  }
+  .search-bar {
+    width: 100% !important;
+  }
+  #customersLedgerContainer div[style*="justify-content:space-between"] {
+    flex-direction: column !important;
+    align-items: stretch !important;
+    gap: 8px !important;
+  }
+  #customersLedgerContainer div[style*="align-items:center;gap:10px"] {
+    width: 100% !important;
+    justify-content: space-between !important;
+  }
   .dash-layout-grid {
     grid-template-columns: 1fr !important;
     gap: 12px !important;
   }
-
-  /* P&L Breakdown compact bullet list on mobile */
   .profit-breakdown {
     gap: 4px !important;
   }
@@ -2514,8 +2650,6 @@ body.light-mode .auth-screen {
   .profit-row.net .profit-row-label::before {
     color: var(--amber-500);
   }
-
-  /* AI Executive Report compact bullet list on mobile */
   .insights-grid {
     display: flex !important;
     flex-direction: column !important;
@@ -2557,8 +2691,6 @@ body.light-mode .auth-screen {
     font-size: 14px !important;
     margin-top: 0 !important;
   }
-
-  /* Buttons and Inputs padding for thumb-tapping */
   .btn, .form-input, .form-select, .form-textarea {
     min-height: 44px !important;
     padding: 10px 14px !important;
@@ -2577,6 +2709,7 @@ body.light-mode .auth-screen {
   .btn-sm, .btn-icon {
     min-height: 32px !important;
     padding: 6px 12px !important;
+    height: auto !important;
   }
   .page-content {
     padding: 12px !important;
@@ -2585,13 +2718,69 @@ body.light-mode .auth-screen {
     padding: 16px !important;
     border-radius: var(--radius-md) !important;
   }
-  /* Detail panel full-screen overrides */
+
+  /* Details Panel Layout */
   .detail-panel {
     width: 100% !important;
     max-width: 100% !important;
+    border-left: none !important;
   }
   .detail-panel-body {
-    padding-bottom: 100px !important;
+    padding: 12px 14px 100px !important;
+  }
+  .detail-panel-header {
+    padding: 14px 14px 10px !important;
+  }
+  .detail-section {
+    margin-bottom: 12px !important;
+  }
+  .divider {
+    margin: 10px 0 !important;
+  }
+  .stats-strip {
+    padding: 10px 12px !important;
+    margin-bottom: 12px !important;
+    border-radius: 12px !important;
+    gap: 8px !important;
+  }
+  .stat-item .stat-val {
+    font-size: 16px !important;
+  }
+  .stat-item .stat-key {
+    font-size: 8px !important;
+    letter-spacing: 0.5px !important;
+  }
+  .ledger-card {
+    padding: 12px !important;
+    margin-top: 10px !important;
+    border-radius: 12px !important;
+  }
+  .fintech-cards-grid {
+    display: grid !important;
+    grid-template-columns: repeat(2, 1fr) !important;
+    gap: 10px !important;
+    margin-top: 10px !important;
+    margin-bottom: 10px !important;
+  }
+  .fintech-card {
+    padding: 12px !important;
+    border-radius: 12px !important;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05) !important;
+    border: 1px solid rgba(0, 0, 0, 0.04) !important;
+  }
+  .fintech-card.card-total-outstanding {
+    grid-column: span 2 !important;
+    margin-top: 0 !important;
+    padding: 14px 12px !important;
+  }
+  .fintech-card-value {
+    font-size: 18px !important;
+    font-weight: 800 !important;
+  }
+  .fintech-card-label {
+    font-size: 9px !important;
+    letter-spacing: 0.5px !important;
+    margin-bottom: 4px !important;
   }
 }
 
@@ -2951,141 +3140,7 @@ body.light-mode .fintech-card.card-total-outstanding {
   padding: 16px !important;
 }
 
-/* ============================================================
-   MOBILE RESPONSIVE OVERRIDES (VIEWPORT < 768PX)
-   ============================================================ */
-@media (max-width: 768px) {
-  /* Compact Mobile-First Layout (No Vertical Clutter) */
-  .detail-panel {
-    width: 100% !important;
-    border-left: none !important;
-  }
-  .detail-panel-body {
-    padding: 12px 14px 100px !important; /* Spacing to prevent fixed mobile bottom nav overlap */
-  }
-  .detail-panel-header {
-    padding: 14px 14px 10px !important;
-  }
-  .detail-section {
-    margin-bottom: 12px !important;
-  }
-  .divider {
-    margin: 10px 0 !important;
-  }
-  .stats-strip {
-    padding: 10px 12px !important;
-    margin-bottom: 12px !important;
-    border-radius: 12px !important;
-    gap: 8px !important;
-  }
-  .stat-item .stat-val {
-    font-size: 16px !important;
-  }
-  .stat-item .stat-key {
-    font-size: 8px !important;
-    letter-spacing: 0.5px !important;
-  }
-  .ledger-card {
-    padding: 12px !important;
-    margin-top: 10px !important;
-    border-radius: 12px !important;
-  }
-
-  /* 2-Column Mobile Grid for Balance Cards */
-  .fintech-cards-grid {
-    display: grid !important;
-    grid-template-columns: repeat(2, 1fr) !important;
-    gap: 10px !important;
-    margin-top: 10px !important;
-    margin-bottom: 10px !important;
-  }
-  
-  .fintech-card {
-    padding: 12px !important;
-    border-radius: 12px !important; /* sleek 12px rounded corners */
-    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05) !important; /* soft shadow-sm */
-    border: 1px solid rgba(0, 0, 0, 0.04) !important;
-  }
-  
-  .fintech-card.card-total-outstanding {
-    grid-column: span 2 !important; /* full-width span */
-    margin-top: 0 !important;
-    padding: 14px 12px !important;
-  }
-
-  /* Mobile Touch Targets & Typography Optimization */
-  .fintech-card-value {
-    font-size: 18px !important; /* text-lg/xl range for mobile */
-    font-weight: 800 !important;
-  }
-  
-  .fintech-card-label {
-    font-size: 9px !important;
-    letter-spacing: 0.5px !important;
-    margin-bottom: 4px !important;
-  }
-
-  /* Large, flat thumb-friendly button targets (48px height) */
-  .btn, .detail-panel-body .btn, .ledger-card .btn, .section-header .btn {
-    padding: 12px 20px !important;
-    font-size: 13px !important;
-    height: 48px !important; /* 48px mobile touch height */
-    border-radius: 12px !important;
-    display: inline-flex !important;
-    align-items: center !important;
-    justify-content: center !important;
-    font-weight: 700 !important;
-  }
-  
-  .form-input, .form-select {
-    height: 44px !important; /* Touch friendly input height */
-    font-size: 13px !important;
-    border-radius: 10px !important;
-  }
-
-  /* Dashboard KPI Mobile Optimization */
-  .metrics-layout {
-    height: auto !important; /* Allow layout auto sizing */
-    gap: 8px !important;
-    margin-bottom: 12px !important;
-  }
-  
-  .metrics-section {
-    height: auto !important;
-  }
-  
-  .metrics-cards-container {
-    gap: 8px !important;
-  }
-
-  .kpi-card {
-    padding: 12px 14px !important;
-    border-radius: 12px !important;
-    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05) !important;
-    min-height: 0 !important;
-    gap: 4px !important;
-  }
-  
-  .kpi-value {
-    font-size: 20px !important; /* crisp size */
-    margin: 2px 0 !important;
-  }
-  
-  .kpi-label {
-    font-size: 9px !important;
-    letter-spacing: 0.5px !important;
-  }
-  
-  .kpi-meta {
-    font-size: 9px !important;
-    margin-top: 0 !important;
-  }
-  
-  .kpi-icon {
-    width: 22px !important;
-    height: 22px !important;
-  }
-}
+/* Redundant overrides removed - all mobile-responsive styling consolidated above */
 
 /* Contextual Month Download Popover Menu */
 .month-download-menu {
