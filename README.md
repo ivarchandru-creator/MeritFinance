@@ -1,27 +1,24 @@
 # Merit Finance 💰
 > **Premium Loan & Interest Management System**
 
-Merit Finance is a sleek, modern, and highly interactive finance dashboard designed for tracking and managing monthly/daily interest loans (e.g., adagu/jewel loans, personal loans, agent-sourced loans). Built using a clean modern design system, the app provides real-time calculations, bilingual localization, dynamic arbitrage splits, and automated PDF exports.
+Merit Finance is a sleek, modern, and highly interactive finance dashboard designed for tracking and managing monthly interest loans (e.g., adagu/jewel loans, personal loans, agent-sourced loans). Built using a clean modern design system, the app provides real-time calculations, bilingual localization, dynamic arbitrage splits, and automated PDF exports.
 
 ---
 
 ## 🌟 Key Features
 
-### 1. Dual Interest Tracking
+### 1. Monthly Interest Tracking
 - **Monthly Loans**: Fixed interest tracking at a 3% monthly rate with automated cycle checks.
-- **Daily Loans**: Dynamic daily tracking calculated on flat Rupee amounts per day (e.g., ₹50/day) with flexible custom rates.
 
 ### 2. Modern UI & Responsive Layout
 - Elegant dark-themed user interface utilizing premium fonts, HSL-tailored variables, and subtle glassmorphic elements.
 - Optimized mobile-first experience with:
-  - Side-by-side vertical dashboard scaling for Monthly and Daily tracks.
   - Tightly grouped, high-density metric cards.
   - Stacked mobile-friendly layout for complex inputs (Split Config Grid).
   - Quick-Action Interest Status Toggles with color-coded badges (`Paid` / `Unpaid`) directly in lists.
 
 ### 3. Smart Profit & Arbitrage Splits
 - Auto-calculated split rates for investor share, agent commission, and owner net margins.
-- Support for "split percentage" models and "custom absolute rupee payouts" per day.
 
 ### 4. Bilingual Localization
 - Complete native translation support for **English** and **Tamil (தமிழ்)**.

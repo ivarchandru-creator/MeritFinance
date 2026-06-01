@@ -215,57 +215,6 @@
             </div>
           </div>
 
-          <!-- Daily Track -->
-          <div class="metrics-section daily-section">
-            <div class="metrics-title" data-i18n="metrics_daily_title">Daily Loan Track</div>
-            <div class="metrics-cards-container">
-
-              <div class="kpi-card card-profit interactive" role="button" tabindex="0" onclick="showGrossInterestBreakdown('daily')" aria-label="Gross Daily Interest">
-                <div class="kpi-header">
-                  <div class="kpi-label" data-i18n="kpi_gross_daily">Gross Daily Interest</div>
-                  <div class="kpi-icon">
-                    <svg class="ui-icon" style="color:var(--emerald-400)" viewBox="0 0 24 24"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg>
-                  </div>
-                </div>
-                <div class="kpi-value" id="kpiDailyGross">₹0</div>
-                <div class="kpi-meta" id="kpiDailyGrossSub">Interest from paid days</div>
-              </div>
-
-              <div class="kpi-card card-liability interactive" role="button" tabindex="0" onclick="navigateTo('investors')" aria-label="Daily Investor Share (Custom/Fixed)">
-                <div class="kpi-header">
-                  <div class="kpi-label" data-i18n="kpi_investor_daily">Investor Share (Custom/Fixed)</div>
-                  <div class="kpi-icon">
-                    <svg class="ui-icon" style="color:var(--rose-400)" viewBox="0 0 24 24"><rect x="3" y="22" width="18" height="2"/><line x1="6" y1="18" x2="6" y2="22"/><line x1="10" y1="18" x2="10" y2="22"/><line x1="14" y1="18" x2="14" y2="22"/><line x1="18" y1="18" x2="18" y2="22"/><polygon points="12 2 2 7 22 7"/></svg>
-                  </div>
-                </div>
-                <div class="kpi-value" id="kpiDailyInvestor">₹0</div>
-                <div class="kpi-meta" id="kpiDailyInvestorSub">Investor payout share</div>
-              </div>
-
-              <div class="kpi-card card-agent interactive" role="button" tabindex="0" onclick="navigateTo('agents')" aria-label="Daily Agent Share (Custom/Fixed)">
-                <div class="kpi-header">
-                  <div class="kpi-label" data-i18n="kpi_agent_daily">Agent Share (Custom/Fixed)</div>
-                  <div class="kpi-icon">
-                    <svg class="ui-icon" style="color:var(--violet-400)" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
-                  </div>
-                </div>
-                <div class="kpi-value" id="kpiDailyAgent">₹0</div>
-                <div class="kpi-meta" id="kpiDailyAgentSub">Agent referral commission</div>
-              </div>
-
-              <div class="kpi-card card-net interactive" role="button" tabindex="0" onclick="downloadDailyInterestPortfolioStatement()" aria-label="Daily Interest Portfolio Track">
-                <div class="kpi-header">
-                  <div class="kpi-label" data-i18n="kpi_net_daily">DAILY INTEREST PORTFOLIO TRACK (தினசரி வட்டி டிராக்)</div>
-                  <div class="kpi-icon">
-                    <svg class="ui-icon" style="color:var(--amber-400)" viewBox="0 0 24 24"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
-                  </div>
-                </div>
-                <div class="kpi-value" id="kpiDailyNet">₹0</div>
-                <div class="kpi-meta" id="kpiDailyNetSub">Real-time collected daily loans for this month</div>
-              </div>
-
-            </div>
-          </div>
         </div>
 
         <!-- Aggregate Financial Overview Rows -->
@@ -313,43 +262,12 @@
                 <button class="filter-tab cust-filter-tab" data-filter="active" role="tab" aria-selected="false" data-i18n="filter_active">Active</button>
                 <button class="filter-tab cust-filter-tab" data-filter="closed" role="tab" aria-selected="false" data-i18n="filter_closed">Closed</button>
                 <button class="filter-tab cust-filter-tab" data-filter="monthly" role="tab" aria-selected="false" data-i18n="filter_monthly">Monthly</button>
-                <button class="filter-tab cust-filter-tab" data-filter="daily" role="tab" aria-selected="false" data-i18n="filter_daily">Daily</button>
               </div>
               <div style="display:flex;align-items:center;gap:10px">
                 <span class="text-sm text-muted" id="customerCount">0 loan(s)</span>
                 <div class="search-bar">
                   <span class="search-icon" aria-hidden="true"><svg class="ui-icon" style="width:14px;height:14px" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg></span>
                   <input type="text" id="customerSearch" placeholder="Search name, phone, ID..." aria-label="Search customers" />
-                </div>
-              </div>
-            </div>
-
-            <!-- Daily Interest Portfolio Section -->
-            <div id="dailyPortfolioContainer" class="desktop-table-view" style="margin-bottom: 28px;">
-              <div style="font-size: 11px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 12px; display: flex; align-items: center; gap: 8px;">
-                <span>Daily Interest Portfolio</span>
-                <span style="color: var(--text-muted); font-weight: 500; font-size: 10px; opacity: 0.85;">(தினசரி வட்டி லோன்கள்)</span>
-              </div>
-              <div class="card" style="padding:0;overflow:hidden">
-                <div style="overflow-x:auto">
-                  <table class="data-table" aria-label="Daily loan table">
-                    <thead>
-                      <tr>
-                        <th data-i18n="th_customer">Customer</th>
-                        <th data-i18n="th_adagu_id">Adagu ID</th>
-                        <th data-i18n="th_principal">Principal</th>
-                        <th data-i18n="paid_principal_label">Principal Paid</th>
-                        <th data-i18n="th_loan_type">Loan Type</th>
-                        <th data-i18n="th_daily_interest">Daily Interest</th>
-                        <th data-i18n="th_agent">Agent</th>
-                        <th data-i18n="th_interest_status">Interest Status</th>
-                        <th data-i18n="th_status">Status</th>
-                      </tr>
-                    </thead>
-                    <tbody id="dailyTableBody">
-                      <!-- Rendered by JS -->
-                    </tbody>
-                  </table>
                 </div>
               </div>
             </div>
@@ -386,14 +304,6 @@
 
             <!-- Mobile View -->
             <div class="mobile-cards-view">
-              <!-- Daily Mobile -->
-              <div style="font-size: 11px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 12px; margin-top: 16px;">
-                Daily Interest Portfolio (தினசரி வட்டி லோன்கள்)
-              </div>
-              <div id="dailyCardsBody" class="mobile-cards-container" style="margin-bottom: 24px;">
-                <!-- Rendered by JS -->
-              </div>
-
               <!-- Monthly Mobile -->
               <div style="font-size: 11px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 12px; margin-top: 16px;">
                 Monthly Interest Portfolio (மாதாந்திர வட்டி லோன்கள்)
@@ -552,10 +462,6 @@
           <label class="form-label" for="cfStartDate" data-i18n="label_start_date">Start Date</label>
           <input type="date" id="cfStartDate" class="form-input" onchange="updateUpfrontInterestPaidAmount()" />
         </div>
-        <div class="form-group" id="dailyEndDateSection" style="display:none">
-          <label class="form-label" for="cfEndDate" data-i18n="label_end_date">End Date</label>
-          <input type="date" id="cfEndDate" class="form-input" onchange="updateUpfrontInterestPaidAmount()" />
-        </div>
       </div>
 
       <!-- Principal -->
@@ -568,20 +474,10 @@
       </div>
 
       <!-- Loan Type Toggle -->
-      <div class="form-group" style="margin-bottom:14px">
+      <div class="form-group" style="margin-bottom:14px; display:none;">
         <label class="form-label" data-i18n="label_loan_type">Loan Type <span>*</span></label>
         <div class="toggle-group" role="group" aria-label="Loan type">
           <div class="toggle-opt selected" id="ltMonthly" role="button" tabindex="0" aria-pressed="true" data-i18n="label_monthly_interest_toggle">Monthly Interest</div>
-          <div class="toggle-opt" id="ltDaily" role="button" tabindex="0" aria-pressed="false" data-i18n="label_daily_interest_toggle">Daily Interest</div>
-        </div>
-      </div>
-
-      <!-- Daily Interest Amount (shown for daily loans) -->
-      <div class="form-group" id="dailyRateSection" style="display:none;margin-bottom:14px">
-        <label class="form-label" for="cfDailyRate" data-i18n="label_daily_interest_amount">Custom Daily Interest Amount (₹)</label>
-        <div class="form-input-prefix">
-          <span class="prefix">₹</span>
-          <input type="number" id="cfDailyRate" class="form-input" placeholder="e.g. 100" min="1" step="1" oninput="updateUpfrontInterestPaidAmount();updateFormSplitPercentages()" />
         </div>
       </div>
 
@@ -612,36 +508,15 @@
           </div>
         </div>
 
-        <!-- Commission Type Toggle: visible only for daily loans -->
-        <div id="agentCommissionTypeRow" style="display:none;margin-top:10px">
-          <label class="form-label">Commission Calculation Type</label>
-          <div class="toggle-group" role="group" aria-label="Commission type">
-            <div class="toggle-opt selected" id="ctMonthly" role="button" tabindex="0" aria-pressed="true" onclick="selectCommissionType('monthly')">Monthly (%/mo)</div>
-            <div class="toggle-opt" id="ctDaily" role="button" tabindex="0" aria-pressed="false" onclick="selectCommissionType('daily')">Daily (%/day)</div>
-          </div>
-        </div>
-
         <div id="agentInfoBox" style="margin-top:10px"></div>
       </div>
 
-      <!-- Profit / Interest Split Configuration (₹/day) -->
-      <div id="splitPercentSection" style="margin-bottom:14px">
-        <label class="form-label" data-i18n="split_config_title">Profit / Interest Split Configuration (₹/day)</label>
-        <div class="split-config-grid">
-          <div class="form-group" style="margin:0">
-            <label class="form-label" style="font-size:11px" data-i18n="label_investor_share">Investor Share (₹/day)</label>
-            <input type="number" id="cfInvestorSplitPercent" class="form-input" placeholder="e.g. 50" min="0" step="0.01" oninput="updateFormSplitPercentages()" />
-          </div>
-          <div class="form-group" style="margin:0">
-            <label class="form-label" style="font-size:11px" data-i18n="label_agent_share">Agent Share (₹/day)</label>
-            <input type="number" id="cfAgentSplitPercent" class="form-input" placeholder="e.g. 25" min="0" step="0.01" oninput="updateFormSplitPercentages()" />
-          </div>
-          <div class="form-group" style="margin:0">
-            <label class="form-label" style="font-size:11px" data-i18n="label_owner_share">Owner Share (₹/day)</label>
-            <input type="number" id="cfOwnerSplitPercent" class="form-input" placeholder="e.g. 25" readonly style="background:var(--bg-muted);cursor:not-allowed" />
-          </div>
-        </div>
-      </div>
+      <!-- Hidden elements to preserve JS bindings -->
+      <input type="hidden" id="cfInvestorSplitPercent" value="0" />
+      <input type="hidden" id="cfAgentSplitPercent" value="0" />
+      <input type="hidden" id="cfOwnerSplitPercent" value="0" />
+      <input type="hidden" id="cfDailyRate" value="0" />
+      <input type="hidden" id="cfEndDate" value="" />
 
       <!-- Upfront Payments & Interest Paid (₹) -->
       <div class="form-grid" style="margin-bottom:14px;grid-template-columns:1.5fr 1fr;gap:12px;align-items:end">
@@ -651,14 +526,6 @@
               <strong style="font-size:11px" data-i18n="label_first_month_paid">First Month Interest Paid?</strong>
             </div>
             <div class="switch" id="firstMonthPaidSwitch" aria-hidden="true"></div>
-          </div>
-        </div>
-        <div class="form-group" id="dailyInterestPaidSection" style="display:none;margin:0">
-          <div class="switch-row" onclick="toggleDailyInterestPaid()" role="checkbox" tabindex="0" aria-checked="false" id="dailyInterestPaidSwitchRow" style="padding:6px 10px;height:38px">
-            <div class="switch-row-label">
-              <strong style="font-size:11px" data-i18n="label_daily_interest_paid">Daily Interest Paid?</strong>
-            </div>
-            <div class="switch" id="dailyInterestPaidSwitch" aria-hidden="true"></div>
           </div>
         </div>
         <div class="form-group" style="margin:0">

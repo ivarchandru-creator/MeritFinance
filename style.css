@@ -842,7 +842,6 @@ body {
 .badge-active { background: rgba(16,185,129,0.15); color: var(--emerald-400); border: 1px solid rgba(16,185,129,0.25); }
 .badge-closed { background: rgba(100,116,139,0.15); color: var(--slate-400); border: 1px solid rgba(100,116,139,0.25); }
 .badge-monthly { background: rgba(59,130,246,0.15); color: var(--blue-400); border: 1px solid rgba(59,130,246,0.25); }
-.badge-daily { background: rgba(245,158,11,0.15); color: var(--amber-400); border: 1px solid rgba(245,158,11,0.25); }
 .badge-agent { background: rgba(139,92,246,0.15); color: var(--violet-400); border: 1px solid rgba(139,92,246,0.25); }
 .badge-warning { background: rgba(245,158,11,0.15); color: var(--amber-400); border: 1px solid rgba(245,158,11,0.3); }
 .badge-danger { background: rgba(244,63,94,0.15); color: var(--rose-400); border: 1px solid rgba(244,63,94,0.3); }
@@ -1492,39 +1491,6 @@ body {
   letter-spacing: 0.8px;
   color: var(--text-muted);
   margin-bottom: 10px;
-}
-
-/* ─── Daily Profit-Split Method Toggle ───────────────────── */
-.daily-method-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-bottom: 10px;
-}
-
-.daily-method-pills {
-  display: flex;
-  gap: 6px;
-}
-
-.daily-method-pills .btn {
-  font-size: 11px;
-  padding: 4px 12px;
-  border-radius: 20px;
-  transition: all 0.2s ease;
-}
-
-.daily-custom-inputs {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 8px;
-  margin: 10px 0;
-  padding: 10px;
-  background: rgba(99,102,241,0.06);
-  border: 1px solid rgba(99,102,241,0.15);
-  border-radius: var(--radius-sm);
 }
 
 

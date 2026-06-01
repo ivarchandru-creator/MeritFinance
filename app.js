@@ -689,12 +689,31 @@ function loadState() {
     if (raw) {
       const parsed = JSON.parse(raw);
       state = { customers: [], investors: [], transactions: [], theme: 'light', lang: 'en', sheetSyncUrl: '', sheetSyncEnabled: false, monthlyArchives: [], lastActiveMonth: '', ...parsed };
+      
+      let modified = false;
       if (state.customers) {
         state.customers.forEach(c => {
           ensureCustomerPaymentsInitialized(c);
+          if (c.payments) {
+            const initialLength = c.payments.length;
+            c.payments = c.payments.filter(p => p.date >= '2026-06-01');
+            if (c.payments.length !== initialLength) {
+              modified = true;
+            }
+          }
           c.paidInterest = getCustomerPaidInterest(c);
           c.paidPrincipal = getCustomerPaidPrincipal(c);
         });
+      }
+      if (state.monthlyArchives) {
+        const initialCount = state.monthlyArchives.length;
+        state.monthlyArchives = state.monthlyArchives.filter(a => a.month >= '2026-06');
+        if (state.monthlyArchives.length !== initialCount) {
+          modified = true;
+        }
+      }
+      if (modified) {
+        saveState();
       }
     }
     
@@ -807,83 +826,9 @@ function daysBetweenInclusive(d1, d2) {
   return Math.max(0, Math.round((b - a) / (1000 * 60 * 60 * 24))) + 1;
 }
 
-function getActivePrincipalForDate(c, dateStr) {
-  if (!c) return 0;
-  const p = Number(c.principal) || 0;
-  if (c.loanType !== 'daily') return p;
-  ensureCustomerPaymentsInitialized(c);
-  let paidBefore = 0;
-  for (const pay of (c.payments || [])) {
-    if (pay.type === 'principal' && pay.date <= dateStr) {
-      paidBefore += Number(pay.amount) || 0;
-    }
-  }
-  return Math.max(0, p - paidBefore);
-}
 
-function getDailyActiveDates(c) {
-  const dates = [];
-  if (!c) return dates;
-  const today = getLocalToday();
-  const startD = c.startDate || c.createdAt?.slice(0, 10) || today;
-  const endD = c.status === 'closed' ? (c.endDate || today) : today;
-  if (endD < startD) return dates;
-  
-  const start = parseDate(startD);
-  const end = parseDate(endD);
-  for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
-    dates.push(formatLocalDate(d));
-  }
-  return dates;
-}
 
-function getDailyAccruedMetricsForRange(c, fromDate, toDate) {
-  let gross = 0;
-  let investorCost = 0;
-  let agentPay = 0;
-  let ownerNet = 0;
-  
-  if (!c || !fromDate || !toDate || toDate < fromDate) return { gross, investorCost, agentPay, ownerNet };
-  
-  const { rate, invPayout, agentPayout, ownerDailyRate } = getDailyRates(c);
-  
-  const start = parseDate(fromDate);
-  const end = parseDate(toDate);
-  
-  for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
-    gross += rate;
-    investorCost += invPayout;
-    agentPay += agentPayout;
-    ownerNet += ownerDailyRate;
-  }
-  
-  return { gross, investorCost, agentPay, ownerNet };
-}
 
-function getDailyLoanMetricsForPaidDays(c) {
-  if (!c) return { gross: 0, investorCost: 0, agentPay: 0, ownerNet: 0 };
-  ensureCustomerPaymentsInitialized(c);
-  const paidInterest = (c.payments || []).filter(p => p.type === 'interest').reduce((s, p) => s + p.amount, 0);
-  
-  const { rate, invPayout, agentPayout, ownerDailyRate } = getDailyRates(c);
-  if (rate <= 0 || paidInterest <= 0) {
-    return { gross: 0, investorCost: 0, agentPay: 0, ownerNet: 0 };
-  }
-  
-  const ratioInv = invPayout / rate;
-  const ratioAgent = agentPayout / rate;
-  
-  const investorCost = paidInterest * ratioInv;
-  const agentPay = paidInterest * ratioAgent;
-  const ownerNet = paidInterest - investorCost - agentPay;
-  
-  return {
-    gross: paidInterest,
-    investorCost: Math.round(investorCost),
-    agentPay: Math.round(agentPay),
-    ownerNet: Math.round(ownerNet)
-  };
-}
 
 function daysFromNow(dateStr) {
   if (!dateStr) return null;
@@ -947,7 +892,6 @@ function ensureCustomerPaymentsInitialized(c) {
 function getActivePrincipalForMonth(c, monthIndex) {
   if (!c) return 0;
   const p = Number(c.principal) || 0;
-  if (c.loanType !== 'monthly') return p;
   
   // Return the remaining principal base: principal - total principal paid to date
   const paid = getCustomerPaidPrincipal(c);
@@ -1012,20 +956,14 @@ function toggleCurrentMonthInterestPaid(customerId) {
 }
 
 function toggleCustomerInterestStatus(customerId) {
-  const c = state.customers.find(x => x.id === customerId);
-  if (!c) return;
-  if (c.loanType === 'monthly') {
-    toggleCurrentMonthInterestPaid(customerId);
-  } else {
-    toggleDailyLoanInterestPaid(customerId);
-  }
+  toggleCurrentMonthInterestPaid(customerId);
 }
 
 function runMonthlyBillingCycleCheck() {
   const today = getLocalToday();
   let changed = false;
   state.customers.forEach((c) => {
-    if (c.status === 'active' && c.loanType === 'monthly') {
+    if (c.status === 'active') {
       const startD = c.startDate || c.createdAt?.slice(0, 10) || today;
       const daysSinceStart = Math.max(0, daysBetween(startD, today));
       const currentCycleIndex = Math.floor(daysSinceStart / 30) + 1;
@@ -1134,19 +1072,8 @@ function investorCost(principalOrCustomer, days) {
   if (typeof principalOrCustomer === 'object' && principalOrCustomer !== null) {
     const c = principalOrCustomer;
     const p = Number(c.principal);
-    if (c.loanType === 'monthly') {
-      // ── FIXED ARBITRAGE: always 2% of principal, no custom overrides ──
-      return (p * INVESTOR_RATE) / 100;
-    } else { // daily — custom/flexible rate track
-      if (c.dailyMethod === 'custom') {
-        const d = days !== undefined ? days : 30;
-        return (Number(c.dailyInvestorPayout) || 0) * d;
-      }
-      const d = days !== undefined ? days : 30;
-      const gross = dailyInterest(p, Number(c.dailyRate) || 0, d);
-      const invPercent = c.investorSplitPercent !== undefined && c.investorSplitPercent !== null ? Number(c.investorSplitPercent) : 50;
-      return (gross * invPercent) / 100;
-    }
+    // ── FIXED ARBITRAGE: always 2% of principal, no custom overrides ──
+    return (p * INVESTOR_RATE) / 100;
   }
   return (Number(principalOrCustomer) * INVESTOR_RATE) / 100;
 }
@@ -1156,16 +1083,9 @@ function agentCommission(principalOrCustomer, customRate, days) {
   if (typeof principalOrCustomer === 'object' && principalOrCustomer !== null) {
     const c = principalOrCustomer;
     const p = Number(c.principal);
-    if (c.loanType === 'monthly') {
-      // ── FIXED ARBITRAGE: always 0.5% of principal if agent present, else 0 ──
-      if (!c.hasAgent) return 0;
-      return (p * AGENT_COMMISSION_RATE) / 100;
-    } else { // daily — custom/flexible rate track
-      const d = days !== undefined ? days : 30;
-      if (!c.hasAgent) return 0;
-      const { agentPayout } = getDailyRates(c);
-      return agentPayout * d;
-    }
+    // ── FIXED ARBITRAGE: always 0.5% of principal if agent present, else 0 ──
+    if (!c.hasAgent) return 0;
+    return (p * AGENT_COMMISSION_RATE) / 100;
   }
   const p = Number(principalOrCustomer);
   const rate = customRate !== undefined && customRate !== null ? Number(customRate) : AGENT_COMMISSION_RATE;
@@ -1177,16 +1097,10 @@ function ownerProfit(principalOrCustomer, hasAgent, optAgentRate) {
   if (typeof principalOrCustomer === 'object' && principalOrCustomer !== null) {
     const c = principalOrCustomer;
     const p = Number(c.principal);
-    if (c.loanType === 'monthly') {
-      // ── FIXED ARBITRAGE: 3% - 2% - 0.5%(agent) = 0.5% or 1.0% ──
-      // No custom split overrides allowed for monthly loans
-      const rate = MONTHLY_CUSTOMER_RATE - INVESTOR_RATE - (c.hasAgent ? AGENT_COMMISSION_RATE : 0);
-      return (p * rate) / 100;
-    } else { // daily — custom/flexible rate track
-      const d = 30;
-      const { ownerDailyRate } = getDailyRates(c);
-      return ownerDailyRate * d;
-    }
+    // ── FIXED ARBITRAGE: 3% - 2% - 0.5%(agent) = 0.5% or 1.0% ──
+    // No custom split overrides allowed for monthly loans
+    const rate = MONTHLY_CUSTOMER_RATE - INVESTOR_RATE - (c.hasAgent ? AGENT_COMMISSION_RATE : 0);
+    return (p * rate) / 100;
   }
   // Scalar fallback (used for ad-hoc calculations)
   const p = Number(principalOrCustomer);
@@ -1195,62 +1109,19 @@ function ownerProfit(principalOrCustomer, hasAgent, optAgentRate) {
   return (p * rate) / 100;
 }
 
-/** Daily interest accrued over N days */
-function dailyInterest(principal, dailyRate, days) {
-  return dailyRate * days;
-}
-
-/**
- * Compute profit-split metrics for a Daily Interest loan over `days` days.
- * Returns: { gross, investorCost, agentPay, ownerNet }
- * Uses c.dailyMethod: 'split' (Percentage Split based on custom %) or 'custom' (fixed ₹/day).
- */
-function getDailyLoanMetrics(c, days) {
-  if (days <= 0) return { gross: 0, investorCost: 0, agentPay: 0, ownerNet: 0 };
-  const { rate, invPayout, agentPayout, ownerDailyRate } = getDailyRates(c);
-  return {
-    gross: rate * days,
-    investorCost: invPayout * days,
-    agentPay: agentPayout * days,
-    ownerNet: ownerDailyRate * days
-  };
-}
-
-function getDailyRates(c) {
-  if (!c) return { rate: 0, invPayout: 0, agentPayout: 0, ownerDailyRate: 0 };
-  const rate = Number(c.dailyInterestRate !== undefined && c.dailyInterestRate !== null ? c.dailyInterestRate : (c.dailyRate || 0));
-  const invPayout = Number(c.investorPerDayRate !== undefined && c.investorPerDayRate !== null ? c.investorPerDayRate : (c.dailyMethod === 'custom' ? (c.dailyInvestorPayout || 0) : (c.investorSplitPercent || 0))) || 0;
-  const agentPayout = c.hasAgent ? Number(c.agentPerDayRate !== undefined && c.agentPerDayRate !== null ? c.agentPerDayRate : (c.dailyMethod === 'custom' ? (c.dailyAgentPayout || 0) : (c.agentSplitPercent || 0))) || 0 : 0;
-  const ownerDailyRate = Math.max(0, rate - invPayout - agentPayout);
-  return { rate, invPayout, agentPayout, ownerDailyRate };
-}
-
 function getRealizedProfitForMonth(monthStr) {
   const paymentHistoryArray = [];
   for (const c of state.customers) {
-    const { rate: dRate, invPayout: dInv, agentPayout: dAgent } = getDailyRates(c);
-    
     const payments = c.payments || [];
     for (const p of payments) {
       if (p.type !== 'interest') continue;
       
       let ownerShare = 0;
       const amt = Number(p.amount) || 0;
-      if (c.loanType === 'monthly') {
-        const gross = amt;
-        const inv = amt * (2 / 3);
-        const agent = c.hasAgent ? amt * (0.5 / 3) : 0;
-        ownerShare = Math.max(0, gross - inv - agent);
-      } else {
-        if (dRate > 0) {
-          const daysFactor = amt / dRate;
-          const inv = dInv * daysFactor;
-          const agent = dAgent * daysFactor;
-          ownerShare = Math.max(0, amt - inv - agent);
-        } else {
-          ownerShare = amt;
-        }
-      }
+      const gross = amt;
+      const inv = amt * (2 / 3);
+      const agent = c.hasAgent ? amt * (0.5 / 3) : 0;
+      ownerShare = Math.max(0, gross - inv - agent);
       
       paymentHistoryArray.push({
         id: p.id,
@@ -1285,18 +1156,20 @@ function getOverallAnnualProfit(m) {
   
   // Calculate current month's dynamic active display values strictly from computed metrics
   const metrics = m || computeMetrics();
-  const currentMonthProfit = metrics.netMonthly + metrics.netDaily;
+  const currentMonthProfit = metrics.netMonthly;
   
   let totalAnnual = 0;
   for (let i = 0; i < 12; i++) {
     const monthStr = `${currentYear}-${String(i + 1).padStart(2, '0')}`;
-    if (i < currentMonthIdx) {
-      const archived = (state.monthlyArchives || []).find(a => a.month === monthStr);
-      if (archived) {
-        totalAnnual += Number(archived.ownerNetProfit) || 0;
+    if (monthStr >= '2026-06') {
+      if (i < currentMonthIdx) {
+        const archived = (state.monthlyArchives || []).find(a => a.month === monthStr);
+        if (archived) {
+          totalAnnual += Number(archived.ownerNetProfit) || 0;
+        }
+      } else if (i === currentMonthIdx) {
+        totalAnnual += currentMonthProfit;
       }
-    } else if (i === currentMonthIdx) {
-      totalAnnual += currentMonthProfit;
     }
   }
   return Math.round(totalAnnual);
@@ -1311,13 +1184,15 @@ function calculateAnnualProjFromCurrent(currentMonthProfit) {
   let totalAnnual = 0;
   for (let i = 0; i < 12; i++) {
     const monthStr = `${currentYear}-${String(i + 1).padStart(2, '0')}`;
-    if (i < currentMonthIdx) {
-      const archived = (state.monthlyArchives || []).find(a => a.month === monthStr);
-      if (archived) {
-        totalAnnual += Number(archived.ownerNetProfit) || 0;
+    if (monthStr >= '2026-06') {
+      if (i < currentMonthIdx) {
+        const archived = (state.monthlyArchives || []).find(a => a.month === monthStr);
+        if (archived) {
+          totalAnnual += Number(archived.ownerNetProfit) || 0;
+        }
+      } else if (i === currentMonthIdx) {
+        totalAnnual += currentMonthProfit;
       }
-    } else if (i === currentMonthIdx) {
-      totalAnnual += currentMonthProfit;
     }
   }
   return totalAnnual;
@@ -1356,8 +1231,7 @@ function checkMonthlyRollover() {
     try {
       const archiveMonth = state.lastActiveMonth;
       
-      const monthly  = state.customers.filter(c => c.status === 'active' && c.loanType === 'monthly');
-      const daily    = state.customers.filter(c => c.status === 'active' && c.loanType === 'daily');
+      const monthly  = state.customers.filter(c => c.status === 'active');
       
       let grossMonthly    = 0;
       let investorMonthly = 0;
@@ -1376,38 +1250,12 @@ function checkMonthlyRollover() {
         }
       }
 
-      let rawGrossDaily    = 0;
-      let rawInvestorDaily = 0;
-      let rawAgentDaily    = 0;
-      let rawNetDaily      = 0;
-
-      for (const c of daily) {
-        const { rate: dRate, invPayout: dInv, agentPayout: dAgent } = getDailyRates(c);
-        const payments = c.payments || [];
-        for (const p of payments) {
-          if (p.date && p.date.startsWith(archiveMonth) && (p.type === 'interest' || p.type === 'Interest') && (p.status === 'Paid' || !p.status || p.status.toLowerCase() === 'paid')) {
-            const amt = Number(p.amount) || 0;
-            rawGrossDaily += amt;
-            if (dRate > 0) {
-              const daysFactor = amt / dRate;
-              const inv = dInv * daysFactor;
-              const agent = dAgent * daysFactor;
-              rawInvestorDaily += inv;
-              rawAgentDaily    += agent;
-              rawNetDaily      += Math.max(0, amt - inv - agent);
-            } else {
-              rawNetDaily += amt;
-            }
-          }
-        }
-      }
-
-      const grossDaily    = Math.round(rawGrossDaily);
-      const investorDaily = Math.round(rawInvestorDaily);
-      const agentDaily    = Math.round(rawAgentDaily);
-      const netDaily      = Math.round(rawNetDaily);
+      const grossDaily    = 0;
+      const investorDaily = 0;
+      const agentDaily    = 0;
+      const netDaily      = 0;
       
-      const ownerNetProfitConcluded = netMonthly + netDaily;
+      const ownerNetProfitConcluded = netMonthly;
       
       const updatedArchives = [...(state.monthlyArchives || [])];
       const existingIdx = updatedArchives.findIndex(a => a.month === archiveMonth);
@@ -1467,8 +1315,6 @@ function prepopulateMonthlyArchives() {
   const currentMonth = getLocalToday().slice(0, 7);
   
   for (const c of state.customers) {
-    const { rate: dRate, invPayout: dInv, agentPayout: dAgent, ownerDailyRate: dOwner } = getDailyRates(c);
-    
     const payments = c.payments || [];
     for (const p of payments) {
       if (p.type !== 'interest' || !p.date) continue;
@@ -1492,36 +1338,16 @@ function prepopulateMonthlyArchives() {
       }
       
       const amt = Number(p.amount) || 0;
-      if (c.loanType === 'monthly') {
-        const gross = amt;
-        const inv = amt * (2 / 3);
-        const agent = c.hasAgent ? amt * (0.5 / 3) : 0;
-        const net = Math.max(0, gross - inv - agent);
-        
-        archives[monthStr].grossMonthly += gross;
-        archives[monthStr].investorMonthly += inv;
-        archives[monthStr].agentMonthly += agent;
-        archives[monthStr].netMonthly += net;
-        archives[monthStr].ownerNetProfit += net;
-      } else {
-        let gross = amt;
-        let inv = 0;
-        let agent = 0;
-        let net = amt;
-        
-        if (dRate > 0) {
-          const daysFactor = amt / dRate;
-          inv = dInv * daysFactor;
-          agent = dAgent * daysFactor;
-          net = Math.max(0, amt - inv - agent);
-        }
-        
-        archives[monthStr].grossDaily += gross;
-        archives[monthStr].investorDaily += inv;
-        archives[monthStr].agentDaily += agent;
-        archives[monthStr].netDaily += net;
-        archives[monthStr].ownerNetProfit += net;
-      }
+      const gross = amt;
+      const inv = amt * (2 / 3);
+      const agent = c.hasAgent ? amt * (0.5 / 3) : 0;
+      const net = Math.max(0, gross - inv - agent);
+      
+      archives[monthStr].grossMonthly += gross;
+      archives[monthStr].investorMonthly += inv;
+      archives[monthStr].agentMonthly += agent;
+      archives[monthStr].netMonthly += net;
+      archives[monthStr].ownerNetProfit += net;
     }
   }
   
@@ -1546,11 +1372,7 @@ function prepopulateMonthlyArchives() {
 /** Aggregate portfolio metrics */
 function computeMetrics() {
   const activeCustomers = state.customers.filter(c => c.status === 'active');
-  const monthly  = activeCustomers.filter(c => c.loanType === 'monthly');
-  const daily    = activeCustomers.filter(c => c.loanType === 'daily');
   const today    = getLocalToday();
-  const currentMonthPrefix = today.slice(0, 7);
-  const isFirstOfMonth = today.endsWith('-01');
 
   // ── Monthly loans analytics (strictly accumulated from paid interest status) ──
   let grossMonthly    = 0;
@@ -1558,7 +1380,7 @@ function computeMetrics() {
   let agentMonthly    = 0;
   let netMonthly      = 0;
 
-  for (const c of monthly) {
+  for (const c of activeCustomers) {
     if (c.currentMonthInterestPaid) {
       const activeP = getActivePrincipalForMonth(c);
       grossMonthly    += (activeP * MONTHLY_CUSTOMER_RATE) / 100;
@@ -1569,38 +1391,6 @@ function computeMetrics() {
     }
   }
 
-  // ── Daily loans analytics (strictly accumulated from paid daily rates in current month) ──
-  let rawGrossDaily    = 0;
-  let rawInvestorDaily = 0;
-  let rawAgentDaily    = 0;
-  let rawNetDaily      = 0;
-
-  for (const c of daily) {
-    const { rate: dRate, invPayout: dInv, agentPayout: dAgent } = getDailyRates(c);
-    const payments = c.payments || [];
-    for (const p of payments) {
-      if (p.date && p.date.startsWith(currentMonthPrefix) && (p.type === 'interest' || p.type === 'Interest') && (p.status === 'Paid' || !p.status || p.status.toLowerCase() === 'paid')) {
-        const amt = Number(p.amount) || 0;
-        rawGrossDaily += amt;
-        if (dRate > 0) {
-          const daysFactor = amt / dRate;
-          const inv = dInv * daysFactor;
-          const agent = dAgent * daysFactor;
-          rawInvestorDaily += inv;
-          rawAgentDaily    += agent;
-          rawNetDaily      += Math.max(0, amt - inv - agent);
-        } else {
-          rawNetDaily += amt;
-        }
-      }
-    }
-  }
-
-  const grossDaily    = Math.round(rawGrossDaily);
-  const investorDaily = Math.round(rawInvestorDaily);
-  const agentDaily    = Math.round(rawAgentDaily);
-  const netDaily      = Math.round(rawNetDaily);
-
   // ── Combined totals ──
   // Investor capital ledger total (used for sub-label display only)
   let totalInvestorCapital = 0;
@@ -1608,31 +1398,28 @@ function computeMetrics() {
     totalInvestorCapital += Number(inv.capital);
   }
 
-  // Monthly investor cost = sum of 2% per loan principal (fixed arbitrage)
-  // Daily investor cost   = sum of custom ₹/day or % split per loan
-  // These two tracks are summed independently — no formula overlap
-  const totalGross    = grossMonthly + grossDaily;
-  const totalInvestor = investorMonthly + investorDaily;   // ← loan-derived, not ledger-derived
-  const totalAgent    = agentMonthly   + agentDaily;
-  const ownerNet      = netMonthly     + netDaily;
-  const annualProj    = calculateAnnualProjFromCurrent(netMonthly + netDaily);
+  const totalGross    = grossMonthly;
+  const totalInvestor = investorMonthly;
+  const totalAgent    = agentMonthly;
+  const ownerNet      = netMonthly;
+  const annualProj    = calculateAnnualProjFromCurrent(netMonthly);
 
   return {
     activeCount:       activeCustomers.length,
-    monthlyCount:      monthly.length,
-    dailyCount:        daily.length,
+    monthlyCount:      activeCustomers.length,
+    dailyCount:        0,
     totalPrincipal:    activeCustomers.reduce((s, c) => s + Number(c.principal), 0),
     grossMonthly,
-    grossDaily,
+    grossDaily:        0,
     totalGross,
     // Monthly sub-totals
     investorMonthly,
     agentMonthly,
     netMonthly,
     // Daily sub-totals
-    investorDaily,
-    agentDaily,
-    netDaily,
+    investorDaily:     0,
+    agentDaily:        0,
+    netDaily:          0,
     // Combined (for KPI cards)
     investorPay:       totalInvestor,
     agentPay:          totalAgent,
@@ -1762,30 +1549,14 @@ function addCustomer(data) {
     phone:     data.phone.trim(),
     adaguId:   data.adaguId.trim(),
     principal: Number(data.principal),
-    loanType:  data.loanType,
-    dailyRate: data.loanType === 'daily' ? Number(data.dailyRate) : null,
-    dailyInterestRate: data.loanType === 'daily' ? Number(data.dailyRate) : null,
+    loanType:  'monthly',
     startDate: data.startDate,
-    endDate:   data.loanType === 'daily' ? (data.endDate || null) : null,
     hasAgent:  Boolean(data.hasAgent),
     agentName: data.hasAgent ? (data.agentName || '').trim() : '',
     agentCommissionRate: data.hasAgent ? Number(data.agentCommissionRate) : null,
-    agentCommissionType: data.hasAgent && data.loanType === 'daily' ? (data.agentCommissionType || 'monthly') : 'monthly',
-    // Daily profit-split settings (only relevant for daily loans)
-    dailyMethod:          data.loanType === 'daily' ? (data.dailyMethod || 'split') : null,
-    dailyInvestorPayout:  data.loanType === 'daily' ? (Number(data.dailyInvestorPayout) || null) : null,
-    dailyAgentPayout:     data.loanType === 'daily' ? (Number(data.dailyAgentPayout) || null) : null,
-    // Custom split percentages
-    investorSplitPercent: data.investorSplitPercent !== undefined ? Number(data.investorSplitPercent) : null,
-    agentSplitPercent:    data.agentSplitPercent !== undefined ? Number(data.agentSplitPercent) : null,
-    ownerSplitPercent:    data.ownerSplitPercent !== undefined ? Number(data.ownerSplitPercent) : null,
-    investorPerDayRate:   data.loanType === 'daily' ? Number(data.investorSplitPercent || 0) : null,
-    agentPerDayRate:      data.loanType === 'daily' && data.hasAgent ? Number(data.agentSplitPercent || 0) : null,
-    daysActive:           data.loanType === 'daily' ? daysBetweenInclusive(data.startDate || getLocalToday(), data.endDate || getLocalToday()) : null,
-    // Photo proof
+    agentCommissionType: 'monthly',
     jewelPhoto:           data.jewelPhoto || null,
     payments:             [],
-    dailyPaidDates:       [],
     currentMonthInterestPaid: false,
     notes:     (data.notes || '').trim(),
     status:    'active',
@@ -1884,26 +1655,12 @@ function updateCustomer(id, data) {
     phone:     data.phone.trim(),
     adaguId:   data.adaguId.trim(),
     principal: Number(data.principal),
-    loanType:  data.loanType,
-    dailyRate: data.loanType === 'daily' ? Number(data.dailyRate) : null,
-    dailyInterestRate: data.loanType === 'daily' ? Number(data.dailyRate) : null,
+    loanType:  'monthly',
     startDate: data.startDate,
-    endDate:   data.loanType === 'daily' ? (data.endDate || null) : null,
     hasAgent:  Boolean(data.hasAgent),
     agentName: data.hasAgent ? (data.agentName || '').trim() : '',
     agentCommissionRate: data.hasAgent ? Number(data.agentCommissionRate) : null,
-    agentCommissionType: data.hasAgent && data.loanType === 'daily' ? (data.agentCommissionType || 'monthly') : 'monthly',
-    // Daily profit-split settings (only relevant for daily loans)
-    dailyMethod:          data.loanType === 'daily' ? (data.dailyMethod || oldC.dailyMethod || 'split') : null,
-    dailyInvestorPayout:  data.loanType === 'daily' ? (Number(data.dailyInvestorPayout) || oldC.dailyInvestorPayout || null) : null,
-    dailyAgentPayout:     data.loanType === 'daily' ? (Number(data.dailyAgentPayout) || oldC.dailyAgentPayout || null) : null,
-    // Custom split percentages
-    investorSplitPercent: data.investorSplitPercent !== undefined ? Number(data.investorSplitPercent) : (oldC.investorSplitPercent || null),
-    agentSplitPercent:    data.agentSplitPercent !== undefined ? Number(data.agentSplitPercent) : (oldC.agentSplitPercent || null),
-    ownerSplitPercent:    data.ownerSplitPercent !== undefined ? Number(data.ownerSplitPercent) : (oldC.ownerSplitPercent || null),
-    investorPerDayRate:   data.loanType === 'daily' ? Number(data.investorSplitPercent || 0) : null,
-    agentPerDayRate:      data.loanType === 'daily' && data.hasAgent ? Number(data.agentSplitPercent || 0) : null,
-    daysActive:           data.loanType === 'daily' ? daysBetweenInclusive(data.startDate || oldC.startDate || getLocalToday(), data.endDate || getLocalToday()) : null,
+    agentCommissionType: 'monthly',
     // Photo proof
     jewelPhoto:           data.jewelPhoto !== undefined ? data.jewelPhoto : (oldC.jewelPhoto || null),
     notes:     (data.notes || '').trim(),
@@ -2128,7 +1885,7 @@ function showGrossInterestBreakdown(type) {
   const body = document.getElementById('interestBreakdownModalBody');
   if (!body) return;
 
-  const activeCustomers = (state.customers || []).filter(c => c.status === 'active' && c.loanType === type);
+  const activeCustomers = (state.customers || []).filter(c => c.status === 'active');
   const today = getLocalToday();
 
   // Sort customers by name
@@ -2136,24 +1893,16 @@ function showGrossInterestBreakdown(type) {
 
   let html = '';
   if (activeCustomers.length === 0) {
-    const emptyMsg = state.lang === 'ta' ? 'செயலில் உள்ள கடன்கள் எதுவும் இல்லை' : 'No active loans of this type.';
+    const emptyMsg = state.lang === 'ta' ? 'செயலில் உள்ள கடன்கள் எதுவும் இல்லை' : 'No active loans.';
     html = `<div style="text-align: center; color: var(--text-muted); padding: 20px 0;">${emptyMsg}</div>`;
   } else {
     html = `<ul style="list-style-type: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 10px;">`;
     for (const c of activeCustomers) {
       let val = 0;
-      if (type === 'monthly') {
-        if (c.currentMonthInterestPaid) {
-          const currentMonthIdx = getCurrentMonthIndex(c);
-          const activeP = getActivePrincipalForMonth(c, currentMonthIdx);
-          val = (activeP * MONTHLY_CUSTOMER_RATE) / 100;
-        }
-      } else {
-        const currentMonthPrefix = getLocalToday().slice(0, 7);
-        const paidDatesInMonth = (c.dailyPaidDates || []).filter(d => d.startsWith(currentMonthPrefix));
-        const paidDaysCount = paidDatesInMonth.length;
-        const { rate } = getDailyRates(c);
-        val = rate * paidDaysCount;
+      if (c.currentMonthInterestPaid) {
+        const currentMonthIdx = getCurrentMonthIndex(c);
+        const activeP = getActivePrincipalForMonth(c, currentMonthIdx);
+        val = (activeP * MONTHLY_CUSTOMER_RATE) / 100;
       }
       
       const formattedVal = fmt(Math.round(val));
@@ -2205,7 +1954,7 @@ function showAnnualRevenueBreakdown() {
         badgeClass = 'badge-archived';
       }
     } else if (i === currentMonthIdx) {
-      val = m.netMonthly + m.netDaily;
+      val = m.netMonthly;
       badgeText = badges.live;
       badgeClass = 'badge-live';
     }
@@ -2269,20 +2018,9 @@ function updateProfitLedgerData() {
     let realized = 0;
     
     // Get accrued interest up to today
-    let accruedInterest = 0;
-    let ownerFraction = 0;
-    if (c.loanType === 'monthly') {
-      accruedInterest = Math.round(getAccruedInterest(c));
-      const rate = MONTHLY_CUSTOMER_RATE - INVESTOR_RATE - (c.hasAgent ? AGENT_COMMISSION_RATE : 0);
-      ownerFraction = rate / MONTHLY_CUSTOMER_RATE;
-    } else {
-      const startD = c.startDate || c.createdAt?.slice(0, 10) || getLocalToday();
-      const endD = c.endDate || getLocalToday();
-      const elapsedDays = daysBetweenInclusive(startD, endD);
-      const { rate: customDailyRate, ownerDailyRate } = getDailyRates(c);
-      accruedInterest = elapsedDays * customDailyRate;
-      ownerFraction = customDailyRate > 0 ? (ownerDailyRate / customDailyRate) : 0;
-    }
+    const accruedInterest = Math.round(getAccruedInterest(c));
+    const rate = MONTHLY_CUSTOMER_RATE - INVESTOR_RATE - (c.hasAgent ? AGENT_COMMISSION_RATE : 0);
+    const ownerFraction = rate / MONTHLY_CUSTOMER_RATE;
     
     const interestPaid = getCustomerPaidInterest(c);
     remainingInterestDue = (accruedInterest - interestPaid) * ownerFraction;
@@ -2368,20 +2106,9 @@ function downloadUnpaidInterestPDF() {
     let realized = 0;
     
     // Get accrued interest up to today
-    let accruedInterest = 0;
-    let ownerFraction = 0;
-    if (c.loanType === 'monthly') {
-      accruedInterest = Math.round(getAccruedInterest(c));
-      const rate = MONTHLY_CUSTOMER_RATE - INVESTOR_RATE - (c.hasAgent ? AGENT_COMMISSION_RATE : 0);
-      ownerFraction = rate / MONTHLY_CUSTOMER_RATE;
-    } else {
-      const startD = c.startDate || c.createdAt?.slice(0, 10) || getLocalToday();
-      const endD = c.endDate || getLocalToday();
-      const elapsedDays = daysBetweenInclusive(startD, endD);
-      const { rate: customDailyRate, ownerDailyRate } = getDailyRates(c);
-      accruedInterest = elapsedDays * customDailyRate;
-      ownerFraction = customDailyRate > 0 ? (ownerDailyRate / customDailyRate) : 0;
-    }
+    const accruedInterest = Math.round(getAccruedInterest(c));
+    const rate = MONTHLY_CUSTOMER_RATE - INVESTOR_RATE - (c.hasAgent ? AGENT_COMMISSION_RATE : 0);
+    const ownerFraction = rate / MONTHLY_CUSTOMER_RATE;
     
     const interestPaid = getCustomerPaidInterest(c);
     remainingInterestDue = (accruedInterest - interestPaid) * ownerFraction;
@@ -2464,20 +2191,9 @@ function downloadUnpaidInterestPDF() {
     ensureCustomerPaymentsInitialized(c);
     
     let remainingInterestDue = 0;
-    let accruedInterest = 0;
-    let ownerFraction = 0;
-    if (c.loanType === 'monthly') {
-      accruedInterest = Math.round(getAccruedInterest(c));
-      const rate = MONTHLY_CUSTOMER_RATE - INVESTOR_RATE - (c.hasAgent ? AGENT_COMMISSION_RATE : 0);
-      ownerFraction = rate / MONTHLY_CUSTOMER_RATE;
-    } else {
-      const startD = c.startDate || c.createdAt?.slice(0, 10) || getLocalToday();
-      const endD = c.endDate || getLocalToday();
-      let elapsedDays = daysBetweenInclusive(startD, endD);
-      const { rate: customDailyRate, ownerDailyRate } = getDailyRates(c);
-      accruedInterest = elapsedDays * customDailyRate;
-      ownerFraction = customDailyRate > 0 ? (ownerDailyRate / customDailyRate) : 0;
-    }
+    const accruedInterest = Math.round(getAccruedInterest(c));
+    const rate = MONTHLY_CUSTOMER_RATE - INVESTOR_RATE - (c.hasAgent ? AGENT_COMMISSION_RATE : 0);
+    const ownerFraction = rate / MONTHLY_CUSTOMER_RATE;
 
     const interestPaid = getCustomerPaidInterest(c);
     remainingInterestDue = (accruedInterest - interestPaid) * ownerFraction;
@@ -2506,7 +2222,7 @@ function downloadUnpaidInterestPDF() {
 
       const nameStr = c.name || 'Unknown';
       const phoneStr = c.phone || '—';
-      const typeStr = c.loanType === 'monthly' ? 'Monthly' : 'Daily';
+      const typeStr = 'Monthly';
       const dueStr = Math.round(remainingInterestDue).toLocaleString('en-IN');
 
       const splitName = doc.splitTextToSize(nameStr, 58);
@@ -2571,35 +2287,18 @@ function downloadMonthlyPerformanceStatement() {
         .filter(p => (p.type === 'interest' || p.type === 'Interest') && p.date >= startDate && p.date <= endDate && (p.status === 'Paid' || !p.status))
         .reduce((s, p) => s + (Number(p.amount) || 0), 0);
 
-      if (c.loanType === 'daily') {
-        const { rate: dRate, invPayout: dInv, agentPayout: dAgent } = getDailyRates(c);
-        const ownerDailyRate = Math.max(0, dRate - dInv - dAgent);
-        const ownerFraction = dRate > 0 ? (ownerDailyRate / dRate) : 0;
+      const rate = MONTHLY_CUSTOMER_RATE - INVESTOR_RATE - (c.hasAgent ? AGENT_COMMISSION_RATE : 0);
+      const ownerFraction = rate / MONTHLY_CUSTOMER_RATE;
 
-        ownerCollected = collectedInMonth * ownerFraction;
+      ownerCollected = collectedInMonth * ownerFraction;
 
-        const elapsed = daysBetweenInclusive(c.startDate || c.createdAt?.slice(0,10) || getLocalToday(), toVal);
-        const accrued = elapsed * dRate;
-        const totalPaid = (c.payments || [])
-          .filter(p => (p.type === 'interest' || p.type === 'Interest') && p.date <= toVal && (p.status === 'Paid' || !p.status))
-          .reduce((s, p) => s + (Number(p.amount) || 0), 0);
+      const accrued = getAccruedInterestUpTo(c, toVal);
+      const totalPaid = (c.payments || [])
+        .filter(p => (p.type === 'interest' || p.type === 'Interest') && p.date <= toVal && (p.status === 'Paid' || !p.status))
+        .reduce((s, p) => s + (Number(p.amount) || 0), 0);
 
-        ownerPending = Math.max(0, accrued - totalPaid) * ownerFraction;
-        expected30D = ownerDailyRate * 30;
-      } else {
-        const rate = MONTHLY_CUSTOMER_RATE - INVESTOR_RATE - (c.hasAgent ? AGENT_COMMISSION_RATE : 0);
-        const ownerFraction = rate / MONTHLY_CUSTOMER_RATE;
-
-        ownerCollected = collectedInMonth * ownerFraction;
-
-        const accrued = getAccruedInterestUpTo(c, toVal);
-        const totalPaid = (c.payments || [])
-          .filter(p => (p.type === 'interest' || p.type === 'Interest') && p.date <= toVal && (p.status === 'Paid' || !p.status))
-          .reduce((s, p) => s + (Number(p.amount) || 0), 0);
-
-        ownerPending = Math.max(0, accrued - totalPaid) * ownerFraction;
-        expected30D = (getActivePrincipalForMonth(c) * rate) / 100;
-      }
+      ownerPending = Math.max(0, accrued - totalPaid) * ownerFraction;
+      expected30D = (getActivePrincipalForMonth(c) * rate) / 100;
     }
 
     totalRealizedProfit += ownerCollected;
@@ -2608,7 +2307,7 @@ function downloadMonthlyPerformanceStatement() {
 
     activeBreakdown.push({
       name: c.name || 'Unknown',
-      type: c.loanType === 'daily' ? 'Daily' : 'Monthly',
+      type: 'Monthly',
       collected: ownerCollected,
       remaining: ownerPending,
       expected30D: expected30D
@@ -2763,7 +2462,7 @@ function downloadMonthlyInterestPortfolioStatement() {
   const currentMonthPrefix = today.slice(0, 7);
 
   const sortedMonthlyCustomers = [...state.customers]
-    .filter(c => c.status === 'active' && c.loanType === 'monthly')
+    .filter(c => c.status === 'active')
     .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
 
   for (const c of sortedMonthlyCustomers) {
@@ -2959,218 +2658,7 @@ function downloadMonthlyInterestPortfolioStatement() {
   doc.save(`${monthName.replace(/\s+/g, '_')}_Monthly_Interest_Portfolio_Statement.pdf`);
 }
 
-function downloadDailyInterestPortfolioStatement() {
-  const { jsPDF } = window.jspdf;
-  const doc = new jsPDF();
-  doc.setLineHeightFactor(1.15);
 
-  const today = getLocalToday();
-  const currentYear = today.slice(0, 4);
-  const currentMonthStr = today.slice(5, 7);
-  const currentMonthNum = parseInt(currentMonthStr, 10);
-  const monthNamesEnglish = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
-  const monthName = monthNamesEnglish[currentMonthNum - 1] + " " + currentYear;
-
-  let totalDailyRealizedProfit = 0;
-  let totalDailyPendingPayments = 0;
-  let totalDailyExpectedProfit = 0;
-  const listData = [];
-  const currentMonthPrefix = today.slice(0, 7);
-
-  const dailyOnlyCustomers = state.customers
-    .filter(c => c.status === 'active' && (c.loanType === 'daily' || c.loanType === 'Daily'))
-    .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
-
-  for (const c of dailyOnlyCustomers) {
-    ensureCustomerPaymentsInitialized(c);
-
-    // Collected Interest in active calendar month
-    let collectedInMonth = 0;
-    if (c.payments) {
-      for (const p of c.payments) {
-        if (p.date && p.date.startsWith(currentMonthPrefix) && (p.type === 'interest' || p.type === 'Interest') && (p.status === 'Paid' || !p.status || p.status.toLowerCase() === 'paid')) {
-          collectedInMonth += Number(p.amount) || 0;
-        }
-      }
-    }
-
-    // Accrued and Paid calculations
-    const startD = c.startDate || c.createdAt?.slice(0, 10) || today;
-    const endD = c.endDate || today;
-    const daysActive = daysBetweenInclusive(startD, endD);
-    const { rate: dRate, invPayout: dInv, agentPayout: dAgent } = getDailyRates(c);
-    const ownerDailyRate = Math.max(0, dRate - dInv - dAgent);
-    const totalAccrued = daysActive * ownerDailyRate;
-    const ownerFraction = dRate > 0 ? (ownerDailyRate / dRate) : 0;
-
-    const ownerCollected = collectedInMonth * ownerFraction;
-    // PendingProfit = TotalExpectedInterest - OwnerCollected (strict tenure math, no 30-day multiplier)
-    const dynamicPending = Math.max(0, totalAccrued - ownerCollected);
-    // Expected = actual active tenure days * daily owner rate (daysActive already = startD..endD inclusive)
-    const dynamicExpectedYield = totalAccrued;
-
-    totalDailyRealizedProfit += ownerCollected;
-    totalDailyPendingPayments += dynamicPending;
-    totalDailyExpectedProfit += dynamicExpectedYield;
-
-    listData.push({
-      name: c.name || 'Unknown',
-      adaguId: c.adaguId || '—',
-      principal: Number(c.principal) || 0,
-      collected: ownerCollected,
-      remaining: dynamicPending,
-      expected30D: dynamicExpectedYield
-    });
-  }
-
-  // Format helper to ensure absolute zero-baseline rendering (Rs. 0 for zero values)
-  const formatPdfVal = (val) => {
-    const v = Math.round(val);
-    if (v === 0) return "Rs. 0";
-    return (v < 0 ? "-" : "") + "Rs. " + Math.abs(v).toLocaleString('en-IN');
-  };
-
-  // 1. Draw Header Banner
-  doc.setFillColor(16, 185, 129); // emerald-500
-  doc.rect(0, 0, 210, 40, 'F');
-
-  doc.setTextColor(255, 255, 255);
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(16);
-  doc.text("DAILY INTEREST PORTFOLIO (MONTHLY SUMMARY REPORT)", 105, 18, { align: "center" });
-
-  doc.setFontSize(11);
-  doc.setFont("helvetica", "normal");
-  doc.text(`Financial Statement - ${monthName}`, 105, 28, { align: "center" });
-  doc.setFontSize(8.5);
-  doc.text(`Generated on: ${new Date().toLocaleString('en-IN')}`, 105, 34, { align: "center" });
-
-  // 2. Summary Box (3 columns)
-  let y = 50;
-  doc.setFillColor(248, 250, 252); // slate-50
-  doc.setDrawColor(226, 232, 240); // slate-200
-  doc.rect(15, y, 180, 26, 'FD');
-
-  // Vertical lines in box
-  doc.line(75, y, 75, y + 26);
-  doc.line(135, y, 135, y + 26);
-
-  // Left KPI: Total Realized Profit (Collected)
-  doc.setTextColor(100, 116, 139); // slate-500
-  doc.setFontSize(7.5);
-  doc.setFont("helvetica", "bold");
-  doc.text("TOTAL REALIZED (COLLECTED)", 17, y + 8);
-  doc.setTextColor(4, 120, 87); // emerald-700
-  doc.setFontSize(12);
-  doc.text(formatPdfVal(totalDailyRealizedProfit), 17, y + 18);
-
-  // Middle KPI: Total Pending Payments (Unpaid)
-  doc.setTextColor(100, 116, 139); // slate-500
-  doc.setFontSize(7.5);
-  doc.setFont("helvetica", "bold");
-  doc.text("TOTAL PENDING (UNPAID)", 77, y + 8);
-  doc.setTextColor(185, 28, 28); // rose-700
-  doc.setFontSize(12);
-  doc.text(formatPdfVal(totalDailyPendingPayments), 77, y + 18);
-
-  // Right KPI: Total Expected Interest
-  doc.setTextColor(100, 116, 139); // slate-500
-  doc.setFontSize(7.5);
-  doc.setFont("helvetica", "bold");
-  doc.text("TOTAL EXPECTED INTEREST", 137, y + 8);
-  doc.setTextColor(217, 119, 6); // amber-600
-  doc.setFontSize(12);
-  doc.text(formatPdfVal(totalDailyExpectedProfit), 137, y + 18);
-
-  y += 38;
-
-  // 3. Table section
-  doc.setTextColor(51, 51, 51);
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(11);
-  doc.text("ACTIVE PORTFOLIO BREAKDOWN", 15, y);
-  y += 6;
-
-  // Table Headers — 6 columns, 8pt font, explicit positions to prevent overlap
-  doc.setFillColor(241, 245, 249); // slate-100
-  doc.rect(15, y, 180, 10, 'F');
-  doc.setDrawColor(226, 232, 240);
-  doc.line(15, y + 10, 195, y + 10);
-
-  doc.setFontSize(8);
-  doc.setFont("helvetica", "bold");
-  doc.text("CUSTOMER NAME", 18, y + 6.5);
-  doc.text("ADAGU ID", 63, y + 6.5);
-  doc.text("PRINCIPAL", 98, y + 5, { align: "right" });
-  doc.text("(RS.)", 98, y + 9, { align: "right" });
-  doc.text("OWNER", 128, y + 5, { align: "right" });
-  doc.text("PROFIT", 128, y + 9, { align: "right" });
-  doc.text("PENDING", 158, y + 5, { align: "right" });
-  doc.text("PROFIT", 158, y + 9, { align: "right" });
-  doc.text("EXPECTED", 195, y + 5, { align: "right" });
-  doc.text("INTEREST", 195, y + 9, { align: "right" });
-
-  y += 10;
-
-  doc.setFont("helvetica", "normal");
-  if (listData.length === 0) {
-    doc.setFontSize(9);
-    doc.text("No active daily loans found.", 105, y + 10, { align: "center" });
-  } else {
-    for (const row of listData) {
-      if (y > 270) {
-        doc.addPage();
-        y = 20;
-
-        // Draw table header on new page
-        doc.setFillColor(241, 245, 249);
-        doc.rect(15, y, 180, 10, 'F');
-        doc.setDrawColor(226, 232, 240);
-        doc.line(15, y + 10, 195, y + 10);
-
-        doc.setFont("helvetica", "bold");
-        doc.setFontSize(8);
-        doc.text("CUSTOMER NAME", 18, y + 6.5);
-        doc.text("ADAGU ID", 63, y + 6.5);
-        doc.text("PRINCIPAL", 98, y + 5, { align: "right" });
-        doc.text("(RS.)", 98, y + 9, { align: "right" });
-        doc.text("OWNER", 128, y + 5, { align: "right" });
-        doc.text("PROFIT", 128, y + 9, { align: "right" });
-        doc.text("PENDING", 158, y + 5, { align: "right" });
-        doc.text("PROFIT", 158, y + 9, { align: "right" });
-        doc.text("EXPECTED", 195, y + 5, { align: "right" });
-        doc.text("INTEREST", 195, y + 9, { align: "right" });
-
-        y += 10;
-        doc.setFont("helvetica", "normal");
-      }
-
-      doc.setFontSize(8.5);
-      const wrappedName = doc.splitTextToSize(row.name, 38);
-      doc.text(wrappedName, 18, y + 5);
-      doc.text(`#${row.adaguId}`, 63, y + 5);
-      doc.text(row.principal.toLocaleString('en-IN'), 98, y + 5, { align: "right" });
-      doc.text(formatPdfVal(row.collected), 128, y + 5, { align: "right" });
-
-      if (row.remaining > 0) {
-        doc.setFont("helvetica", "bold");
-        doc.setTextColor(185, 28, 28); // rose-700
-      }
-      doc.text(formatPdfVal(row.remaining), 158, y + 5, { align: "right" });
-      doc.setTextColor(51, 51, 51);
-      doc.setFont("helvetica", "normal");
-
-      doc.text(formatPdfVal(row.expected30D), 195, y + 5, { align: "right" });
-
-      const lines = wrappedName.length;
-      const rowHeight = Math.max(8, lines * 4);
-      doc.line(15, y + rowHeight, 195, y + rowHeight);
-      y += rowHeight;
-    }
-  }
-
-  doc.save(`${monthName.replace(/\s+/g, '_')}_Daily_Interest_Portfolio_Statement.pdf`);
-}
 
 function showMonthDownloadMenu(event, monthIndex) {
   event.stopPropagation();
@@ -3194,19 +2682,7 @@ function showMonthDownloadMenu(event, monthIndex) {
     closeAllDropdownMenus();
   };
 
-  const item2 = document.createElement('button');
-  item2.className = 'month-menu-item';
-  item2.innerHTML = `
-    <svg class="ui-icon" style="color:var(--amber-400); width:16px; height:16px;" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-    <span>${state.lang === 'ta' ? 'தினசரி PDF பதிவிறக்கு' : 'Download Daily PDF'}</span>
-  `;
-  item2.onclick = () => {
-    downloadHistoricalDailyPDF(monthIndex);
-    closeAllDropdownMenus();
-  };
-
   menu.appendChild(item1);
-  menu.appendChild(item2);
   document.body.appendChild(menu);
 
   // Position the menu near the click event
@@ -3260,19 +2736,7 @@ function downloadHistoricalMonthlyPDF(monthIndex) {
   downloadMonthlyInterestMonthReport(monthNameEng, monthStartDate, monthEndDate);
 }
 
-function downloadHistoricalDailyPDF(monthIndex) {
-  const monthNamesEnglish = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
-  const monthNameEng = monthNamesEnglish[monthIndex];
-  
-  const today = getLocalToday();
-  const year = today.slice(0, 4);
-  
-  const monthStartDate = `${year}-${String(monthIndex + 1).padStart(2, '0')}-01`;
-  const lastDay = new Date(parseInt(year, 10), monthIndex + 1, 0).getDate();
-  const monthEndDate = `${year}-${String(monthIndex + 1).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
 
-  downloadDailyInterestMonthReport(monthNameEng, monthStartDate, monthEndDate);
-}
 
 function downloadMonthlyInterestMonthReport(monthName, startDate, endDate) {
   const { jsPDF } = window.jspdf;
@@ -3289,7 +2753,6 @@ function downloadMonthlyInterestMonthReport(monthName, startDate, endDate) {
   // Filter customers active in this historical month
   const activeMonthlyInMonth = state.customers
     .filter(c => {
-      if (c.loanType !== 'monthly') return false;
       const startD = c.startDate || c.createdAt?.slice(0, 10) || endDate;
       const isClosed = c.status === 'closed';
       const cEnd = isClosed && c.endDate ? c.endDate : '9999-12-31';
@@ -3491,223 +2954,7 @@ function downloadMonthlyInterestMonthReport(monthName, startDate, endDate) {
   doc.save(`${monthName.replace(/\s+/g, '_')}_2026_Monthly_Interest_Report.pdf`);
 }
 
-function downloadDailyInterestMonthReport(monthName, startDate, endDate) {
-  const { jsPDF } = window.jspdf;
-  const doc = new jsPDF();
-  doc.setLineHeightFactor(1.15);
 
-  const selectedMonthYearStr = `${monthName.toUpperCase()} 2026`;
-
-  let totalDailyRealizedProfit = 0;
-  let totalDailyPendingPayments = 0;
-  let totalDailyExpectedProfit = 0;
-  const listData = [];
-
-  // Filter customers active in this historical month
-  const activeDailyInMonth = state.customers
-    .filter(c => {
-      if (c.loanType !== 'daily' && c.loanType !== 'Daily') return false;
-      const startD = c.startDate || c.createdAt?.slice(0, 10) || endDate;
-      const isClosed = c.status === 'closed';
-      const cEnd = isClosed && c.endDate ? c.endDate : '9999-12-31';
-      return (startD <= endDate) && (cEnd >= startDate);
-    })
-    .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
-
-  for (const c of activeDailyInMonth) {
-    ensureCustomerPaymentsInitialized(c);
-
-    // Collected Interest in this specific calendar month
-    let collectedInMonth = 0;
-    if (c.payments) {
-      for (const p of c.payments) {
-        if (p.date && p.date >= startDate && p.date <= endDate && (p.type === 'interest' || p.type === 'Interest') && (p.status === 'Paid' || !p.status || p.status.toLowerCase() === 'paid')) {
-          collectedInMonth += Number(p.amount) || 0;
-        }
-      }
-    }
-
-    // Accrued and Paid calculations up to the end of this historical month
-    const startD = c.startDate || c.createdAt?.slice(0, 10) || endDate;
-    const endD = c.endDate || getLocalToday();
-
-    // Total Expected Interest Cell: Force the value calculated from the active tenure days spanned between StartDate and EndDate
-    const calculatedDays = daysBetweenInclusive(startD, endD);
-    const tenureDays = c.daysActive !== undefined && c.daysActive !== null ? c.daysActive : calculatedDays;
-
-    const { rate: dRate, invPayout: dInv, agentPayout: dAgent } = getDailyRates(c);
-    const ownerDailyRate = Math.max(0, dRate - dInv - dAgent);
-    const totalExpectedInterest = tenureDays * dRate; // (e.g., 2 days * ₹500 = Rs. 1,000)
-
-    // Owner Profit (Realized Collected) Cell: Map strictly the actual sum of dynamic interest payments manually recorded and marked as "Paid" for that customer during the month (scaled by owner fraction)
-    const ownerFraction = dRate > 0 ? (ownerDailyRate / dRate) : 0;
-    const ownerCollected = collectedInMonth * ownerFraction;
-
-    // Pending Profit: The remaining amount calculated exactly by subtracting the collected owner profit from the expected profit (e.g., ₹1,000 - ₹0 = ₹1,000)
-    const dynamicPending = totalExpectedInterest - ownerCollected;
-
-    totalDailyRealizedProfit += ownerCollected;
-    totalDailyPendingPayments += dynamicPending;
-    totalDailyExpectedProfit += totalExpectedInterest;
-
-    listData.push({
-      name: c.name || 'Unknown',
-      adaguId: c.adaguId || '—',
-      principal: Number(c.principal) || 0,
-      collected: ownerCollected,
-      remaining: dynamicPending,
-      expected30D: totalExpectedInterest
-    });
-  }
-
-  // Format helper to ensure absolute zero-baseline rendering (Rs. 0 for zero values)
-  const formatPdfVal = (val) => {
-    const v = Math.round(val);
-    if (v === 0) return "Rs. 0";
-    return (v < 0 ? "-" : "") + "Rs. " + Math.abs(v).toLocaleString('en-IN');
-  };
-
-  // 1. Draw Header Banner
-  doc.setFillColor(16, 185, 129); // emerald-500
-  doc.rect(0, 0, 210, 40, 'F');
-
-  doc.setTextColor(255, 255, 255);
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(14);
-  doc.text(`MERIT FINANCE - DAILY INTEREST PORTFOLIO REPORT (${selectedMonthYearStr})`, 105, 18, { align: "center" });
-
-  doc.setFontSize(11);
-  doc.setFont("helvetica", "normal");
-  doc.text(`Historical Statement for ${monthName} 2026`, 105, 28, { align: "center" });
-  doc.setFontSize(8.5);
-  doc.text(`Generated on: ${new Date().toLocaleString('en-IN')}`, 105, 34, { align: "center" });
-
-  // 2. Summary Box (3 columns)
-  let y = 50;
-  doc.setFillColor(248, 250, 252); // slate-50
-  doc.setDrawColor(226, 232, 240); // slate-200
-  doc.rect(15, y, 180, 26, 'FD');
-
-  // Vertical lines in box
-  doc.line(75, y, 75, y + 26);
-  doc.line(135, y, 135, y + 26);
-
-  // Left KPI: Total Realized Profit (Collected)
-  doc.setTextColor(100, 116, 139); // slate-500
-  doc.setFontSize(7.5);
-  doc.setFont("helvetica", "bold");
-  doc.text("TOTAL REALIZED (COLLECTED)", 17, y + 8);
-  doc.setTextColor(4, 120, 87); // emerald-700
-  doc.setFontSize(12);
-  doc.text(formatPdfVal(totalDailyRealizedProfit), 17, y + 18);
-
-  // Middle KPI: Total Pending Payments (Unpaid)
-  doc.setTextColor(100, 116, 139); // slate-500
-  doc.setFontSize(7.5);
-  doc.setFont("helvetica", "bold");
-  doc.text("TOTAL PENDING (UNPAID)", 77, y + 8);
-  doc.setTextColor(185, 28, 28); // rose-700
-  doc.setFontSize(12);
-  doc.text(formatPdfVal(totalDailyPendingPayments), 77, y + 18);
-
-  // Right KPI: Total Expected Interest
-  doc.setTextColor(100, 116, 139); // slate-500
-  doc.setFontSize(7.5);
-  doc.setFont("helvetica", "bold");
-  doc.text("TOTAL EXPECTED INTEREST", 137, y + 8);
-  doc.setTextColor(217, 119, 6); // amber-600
-  doc.setFontSize(12);
-  doc.text(formatPdfVal(totalDailyExpectedProfit), 137, y + 18);
-
-  y += 38;
-
-  // 3. Table section
-  doc.setTextColor(51, 51, 51);
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(11);
-  doc.text(`ACTIVE DAILY PORTFOLIO BREAKDOWN`, 15, y);
-  y += 6;
-
-  // Table Headers — 6 columns, 8pt font, explicit positions to prevent overlap
-  doc.setFillColor(241, 245, 249); // slate-100
-  doc.rect(15, y, 180, 10, 'F');
-  doc.setDrawColor(226, 232, 240);
-  doc.line(15, y + 10, 195, y + 10);
-
-  doc.setFontSize(8);
-  doc.setFont("helvetica", "bold");
-  doc.text("CUSTOMER NAME", 18, y + 6.5);
-  doc.text("ADAGU ID", 63, y + 6.5);
-  doc.text("PRINCIPAL", 98, y + 5, { align: "right" });
-  doc.text("(RS.)", 98, y + 9, { align: "right" });
-  doc.text("OWNER", 128, y + 5, { align: "right" });
-  doc.text("PROFIT", 128, y + 9, { align: "right" });
-  doc.text("PENDING", 158, y + 5, { align: "right" });
-  doc.text("PROFIT", 158, y + 9, { align: "right" });
-  doc.text("EXPECTED", 195, y + 5, { align: "right" });
-  doc.text("INTEREST", 195, y + 9, { align: "right" });
-
-  y += 10;
-
-  doc.setFont("helvetica", "normal");
-  if (listData.length === 0) {
-    doc.setFontSize(9);
-    doc.text("No active daily loans found for this period.", 105, y + 10, { align: "center" });
-  } else {
-    for (const row of listData) {
-      if (y > 270) {
-        doc.addPage();
-        y = 20;
-
-        // Draw table header on new page
-        doc.setFillColor(241, 245, 249);
-        doc.rect(15, y, 180, 10, 'F');
-        doc.setDrawColor(226, 232, 240);
-        doc.line(15, y + 10, 195, y + 10);
-
-        doc.setFont("helvetica", "bold");
-        doc.setFontSize(8);
-        doc.text("CUSTOMER NAME", 18, y + 6.5);
-        doc.text("ADAGU ID", 63, y + 6.5);
-        doc.text("PRINCIPAL", 98, y + 5, { align: "right" });
-        doc.text("(RS.)", 98, y + 9, { align: "right" });
-        doc.text("OWNER", 128, y + 5, { align: "right" });
-        doc.text("PROFIT", 128, y + 9, { align: "right" });
-        doc.text("PENDING", 158, y + 5, { align: "right" });
-        doc.text("PROFIT", 158, y + 9, { align: "right" });
-        doc.text("EXPECTED", 195, y + 5, { align: "right" });
-        doc.text("INTEREST", 195, y + 9, { align: "right" });
-
-        y += 10;
-        doc.setFont("helvetica", "normal");
-      }
-
-      doc.setFontSize(8.5);
-      const wrappedName = doc.splitTextToSize(row.name, 38);
-      doc.text(wrappedName, 18, y + 5);
-      doc.text(`#${row.adaguId}`, 63, y + 5);
-      doc.text(row.principal.toLocaleString('en-IN'), 98, y + 5, { align: "right" });
-      doc.text(formatPdfVal(row.collected), 128, y + 5, { align: "right" });
-
-      if (row.remaining > 0) {
-        doc.setFont("helvetica", "bold");
-        doc.setTextColor(185, 28, 28); // rose-700
-      }
-      doc.text(formatPdfVal(row.remaining), 158, y + 5, { align: "right" });
-      doc.setTextColor(51, 51, 51);
-      doc.setFont("helvetica", "normal");
-
-      doc.text(formatPdfVal(row.expected30D), 195, y + 5, { align: "right" });
-
-      const lines = wrappedName.length;
-      const rowHeight = Math.max(8, lines * 4);
-      doc.line(15, y + rowHeight, 195, y + rowHeight);
-      y += rowHeight;
-    }
-  }
-
-  doc.save(`${monthName.replace(/\s+/g, '_')}_2026_Daily_Interest_Report.pdf`);
-}
 
 function openDetailPanel(customerId) {
   viewingCustomerId = customerId;
@@ -3773,21 +3020,6 @@ function renderDashboard() {
   const kpiMonthlyNet = document.getElementById('kpiMonthlyNet');
   if (kpiMonthlyNet) kpiMonthlyNet.textContent = fmt(m.netMonthly, true);
 
-  // Populate Daily Track
-  const kpiDailyGross = document.getElementById('kpiDailyGross');
-  if (kpiDailyGross) kpiDailyGross.textContent = fmt(m.grossDaily, true);
-  
-  const kpiDailyInvestor = document.getElementById('kpiDailyInvestor');
-  if (kpiDailyInvestor) kpiDailyInvestor.textContent = fmt(m.investorDaily, true);
-  
-  const kpiDailyAgent = document.getElementById('kpiDailyAgent');
-  if (kpiDailyAgent) kpiDailyAgent.textContent = fmt(m.agentDaily, true);
-  
-  const kpiDailyNet = document.getElementById('kpiDailyNet');
-  if (kpiDailyNet) {
-    kpiDailyNet.textContent = fmt(m.netDaily, false);
-  }
-
   // Update sub-labels dynamically
   const kpiMonthlyGrossSub = document.getElementById('kpiMonthlyGrossSub');
   if (kpiMonthlyGrossSub) kpiMonthlyGrossSub.textContent = `${m.monthlyCount} ${langIsTA ? 'செயலில் உள்ள கடன்கள்' : 'active loans'}`;
@@ -3801,20 +3033,8 @@ function renderDashboard() {
   const kpiMonthlyNetSub = document.getElementById('kpiMonthlyNetSub');
   if (kpiMonthlyNetSub) kpiMonthlyNetSub.textContent = langIsTA ? 'அனைத்து கழிவுகளுக்கும் பின்' : 'After all deductions';
 
-  const kpiDailyGrossSub = document.getElementById('kpiDailyGrossSub');
-  if (kpiDailyGrossSub) kpiDailyGrossSub.textContent = `${m.dailyCount} ${langIsTA ? 'செயலில் உள்ள கடன்கள்' : 'active loans'}`;
-  
-  const kpiDailyInvestorSub = document.getElementById('kpiDailyInvestorSub');
-  if (kpiDailyInvestorSub) kpiDailyInvestorSub.textContent = langIsTA ? 'முதலீட்டாளர் வட்டிப் பங்கு' : 'Investor payout share';
-  
-  const kpiDailyAgentSub = document.getElementById('kpiDailyAgentSub');
-  if (kpiDailyAgentSub) kpiDailyAgentSub.textContent = langIsTA ? 'முகவர் பரிந்துரை கமிஷன்' : 'Agent referral commission';
-  
-  const kpiDailyNetSub = document.getElementById('kpiDailyNetSub');
-  if (kpiDailyNetSub) kpiDailyNetSub.textContent = "Real-time collected daily loans for this month";
-
   // Populate Aggregate Overview Rows
-  const combinedMonthly = m.netMonthly + m.netDaily;
+  const combinedMonthly = m.netMonthly;
   const overallAnnual = getOverallAnnualProfit(m);
 
   const valCombinedMonthlyProfit = document.getElementById('valCombinedMonthlyProfit');
@@ -3917,34 +3137,29 @@ I18N.en.toast_import_failed = "Failed to fetch sheet. Check sharing settings or 
 I18N.ta.toast_import_failed = "ஷீட்டைப் பெற முடியவில்லை. பகிர்வு அமைப்புகளைச் சரிபார்க்கவும் அல்லது CSV கோப்பை பதிவேற்றவும்.";
 I18N.en.toast_auth_failed = "Authentication failed: {error}";
 I18N.ta.toast_auth_failed = "அங்கீகாரம் தோல்வியடைந்தது: {error}";
-
 function getAccruedInterestUpTo(c, targetDate) {
   if (!c) return 0;
   const p = Number(c.principal) || 0;
   const startDate = c.startDate || c.createdAt?.slice(0, 10) || targetDate;
   const days = Math.max(0, daysBetween(startDate, targetDate));
   
-  if (c.loanType === 'monthly') {
-    const totalMonths = Math.floor(days / 30);
-    let totalInterest = 0;
-    
-    // Sum completed months
-    for (let m = 1; m <= totalMonths; m++) {
-      const activeP = getActivePrincipalForMonth(c, m);
-      totalInterest += (activeP * MONTHLY_CUSTOMER_RATE) / 100;
-    }
-    
-    // Add current month (if active/open)
-    if (c.status !== 'closed' && targetDate >= getLocalToday()) {
-      const currentMonthIdx = totalMonths + 1;
-      const activeP = getActivePrincipalForMonth(c, currentMonthIdx);
-      totalInterest += (activeP * MONTHLY_CUSTOMER_RATE) / 100;
-    }
-    
-    return Math.round(totalInterest);
-  } else {
-    return Math.round(getDailyAccruedMetricsForRange(c, startDate, targetDate).gross);
+  const totalMonths = Math.floor(days / 30);
+  let totalInterest = 0;
+  
+  // Sum completed months
+  for (let m = 1; m <= totalMonths; m++) {
+    const activeP = getActivePrincipalForMonth(c, m);
+    totalInterest += (activeP * MONTHLY_CUSTOMER_RATE) / 100;
   }
+  
+  // Add current month (if active/open)
+  if (c.status !== 'closed' && targetDate >= getLocalToday()) {
+    const currentMonthIdx = totalMonths + 1;
+    const activeP = getActivePrincipalForMonth(c, currentMonthIdx);
+    totalInterest += (activeP * MONTHLY_CUSTOMER_RATE) / 100;
+  }
+  
+  return Math.round(totalInterest);
 }
 
 function getAccruedInvestorCostUpTo(c, targetDate) {
@@ -3953,22 +3168,18 @@ function getAccruedInvestorCostUpTo(c, targetDate) {
   const startDate = c.startDate || c.createdAt?.slice(0, 10) || targetDate;
   const days = Math.max(0, daysBetween(startDate, targetDate));
   
-  if (c.loanType === 'monthly') {
-    const totalMonths = Math.floor(days / 30);
-    let total = 0;
-    for (let m = 1; m <= totalMonths; m++) {
-      const activeP = getActivePrincipalForMonth(c, m);
-      total += (activeP * INVESTOR_RATE) / 100;
-    }
-    if (c.status !== 'closed' && targetDate >= getLocalToday()) {
-      const currentMonthIdx = totalMonths + 1;
-      const activeP = getActivePrincipalForMonth(c, currentMonthIdx);
-      total += (activeP * INVESTOR_RATE) / 100;
-    }
-    return Math.round(total);
-  } else {
-    return Math.round(getDailyAccruedMetricsForRange(c, startDate, targetDate).investorCost);
+  const totalMonths = Math.floor(days / 30);
+  let total = 0;
+  for (let m = 1; m <= totalMonths; m++) {
+    const activeP = getActivePrincipalForMonth(c, m);
+    total += (activeP * INVESTOR_RATE) / 100;
   }
+  if (c.status !== 'closed' && targetDate >= getLocalToday()) {
+    const currentMonthIdx = totalMonths + 1;
+    const activeP = getActivePrincipalForMonth(c, currentMonthIdx);
+    total += (activeP * INVESTOR_RATE) / 100;
+  }
+  return Math.round(total);
 }
 
 function getAccruedAgentCommissionUpTo(c, targetDate) {
@@ -3977,23 +3188,19 @@ function getAccruedAgentCommissionUpTo(c, targetDate) {
   const startDate = c.startDate || c.createdAt?.slice(0, 10) || targetDate;
   const days = Math.max(0, daysBetween(startDate, targetDate));
   
-  if (c.loanType === 'monthly') {
-    if (!c.hasAgent) return 0;
-    const totalMonths = Math.floor(days / 30);
-    let total = 0;
-    for (let m = 1; m <= totalMonths; m++) {
-      const activeP = getActivePrincipalForMonth(c, m);
-      total += (activeP * AGENT_COMMISSION_RATE) / 100;
-    }
-    if (c.status !== 'closed' && targetDate >= getLocalToday()) {
-      const currentMonthIdx = totalMonths + 1;
-      const activeP = getActivePrincipalForMonth(c, currentMonthIdx);
-      total += (activeP * AGENT_COMMISSION_RATE) / 100;
-    }
-    return Math.round(total);
-  } else {
-    return Math.round(getDailyAccruedMetricsForRange(c, startDate, targetDate).agentPay);
+  if (!c.hasAgent) return 0;
+  const totalMonths = Math.floor(days / 30);
+  let total = 0;
+  for (let m = 1; m <= totalMonths; m++) {
+    const activeP = getActivePrincipalForMonth(c, m);
+    total += (activeP * AGENT_COMMISSION_RATE) / 100;
   }
+  if (c.status !== 'closed' && targetDate >= getLocalToday()) {
+    const currentMonthIdx = totalMonths + 1;
+    const activeP = getActivePrincipalForMonth(c, currentMonthIdx);
+    total += (activeP * AGENT_COMMISSION_RATE) / 100;
+  }
+  return Math.round(total);
 }
 
 function getAccruedInterest(c) {
@@ -4024,21 +3231,17 @@ function openPhotoLightbox(customerId) {
 
 function renderCustomerList() {
   const list = filteredCustomers();
-  
-  const dailyList = list.filter(c => c.loanType === 'daily');
-  const monthlyList = list.filter(c => c.loanType === 'monthly');
+  const monthlyList = list;
 
-  const dailyTbody = document.getElementById('dailyTableBody');
   const monthlyTbody = document.getElementById('monthlyTableBody');
-  const dailyCardsBody = document.getElementById('dailyCardsBody');
   const monthlyCardsBody = document.getElementById('monthlyCardsBody');
 
-  if (!dailyTbody || !monthlyTbody || !dailyCardsBody || !monthlyCardsBody) return;
+  if (!monthlyTbody || !monthlyCardsBody) return;
 
   function getRowHtml(c) {
     const p = Number(c.principal);
-    const monthlyInt = c.loanType === 'monthly' ? monthlyInterest(c) : null;
-    const ownerP     = c.loanType === 'monthly' ? ownerProfit(c) : null;
+    const monthlyInt = monthlyInterest(c);
+    const ownerP     = ownerProfit(c);
 
     return `
       <tr onclick="openDetailPanel('${c.id}')" style="cursor:pointer">
@@ -4064,20 +3267,11 @@ function renderCustomerList() {
           <span style="font-size:15px;font-weight:700;color:var(--blue-400)">${fmt(c.paidPrincipal || 0)}</span>
         </td>
         <td>
-          <span class="badge badge-${c.loanType}">${c.loanType === 'monthly' ? t('monthly_badge') : t('daily_badge')}</span>
-          ${c.loanType === 'daily' ? `<div class="text-xs text-muted mt-1">₹${c.dailyInterestRate !== undefined && c.dailyInterestRate !== null ? c.dailyInterestRate : c.dailyRate}/day</div>` : ''}
+          <span class="badge badge-monthly">${t('monthly_badge')}</span>
         </td>
         <td>
-          ${c.loanType === 'monthly' ? `
-            <div style="font-size:14px;font-weight:700;color:var(--emerald-400)">${fmt(monthlyInt)}</div>
-            <div class="text-xs text-muted">${t('owner_prefix')}${fmt(ownerP)}</div>
-          ` : (() => {
-            const { rate: dailyRate, ownerDailyRate: ownerShare } = getDailyRates(c);
-            return `
-              <div style="font-size:14px;font-weight:700;color:var(--emerald-400)">${fmt(dailyRate)}/${state.lang === 'ta' ? 'நாள்' : 'day'}</div>
-              <div class="text-xs text-muted">${t('owner_prefix')}${fmt(ownerShare)}</div>
-            `;
-          })()}
+          <div style="font-size:14px;font-weight:700;color:var(--emerald-400)">${fmt(monthlyInt)}</div>
+          <div class="text-xs text-muted">${t('owner_prefix')}${fmt(ownerP)}</div>
         </td>
         <td>
           ${c.hasAgent
@@ -4086,7 +3280,7 @@ function renderCustomerList() {
         </td>
         <td>
           ${(() => {
-            const isPaid = c.loanType === 'monthly' ? !!c.currentMonthInterestPaid : (c.dailyPaidDates || []).includes(getLocalToday());
+            const isPaid = !!c.currentMonthInterestPaid;
             const badgeClass = isPaid ? 'badge-status-paid' : 'badge-status-unpaid';
             const badgeLabel = isPaid 
               ? (state.lang === 'ta' ? 'செலுத்தப்பட்டது' : 'Paid') 
@@ -4123,7 +3317,7 @@ function renderCustomerList() {
           <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px">
             <span class="badge badge-${c.status}">${c.status === 'active' ? t('active_status') : t('closed_status')}</span>
             ${(() => {
-              const isPaid = c.loanType === 'monthly' ? !!c.currentMonthInterestPaid : (c.dailyPaidDates || []).includes(getLocalToday());
+              const isPaid = !!c.currentMonthInterestPaid;
               const badgeClass = isPaid ? 'badge-status-paid' : 'badge-status-unpaid';
               const badgeLabel = isPaid 
                 ? (state.lang === 'ta' ? 'செலுத்தப்பட்டது' : 'Paid') 
@@ -4136,42 +3330,20 @@ function renderCustomerList() {
           <div class="mobile-card-meta">
             <div class="mobile-card-principal">${fmt(p)}</div>
             <div style="font-size:12px;color:var(--text-muted)">
-              ${c.loanType === 'monthly' ? t('monthly_badge') + ' (3%)' : t('daily_badge') + ' (₹' + (c.dailyInterestRate !== undefined && c.dailyInterestRate !== null ? c.dailyInterestRate : c.dailyRate) + '/day)'}
+              ${t('monthly_badge') + ' (3%)'}
             </div>
             <div style="font-size:13px;font-weight:700;color:var(--blue-400);margin-top:4px">
               ${t('paid_principal_label')}: ${fmt(c.paidPrincipal || 0)}
             </div>
           </div>
           <div style="text-align:right">
-            ${c.loanType === 'monthly' ? `
-              <div style="font-size:13px;font-weight:700;color:var(--emerald-400)">${fmt(monthlyInterest(c))}</div>
-              <div class="text-xs text-muted">${t('owner_prefix')}${fmt(ownerProfit(c))}</div>
-            ` : (() => {
-              const { rate: dailyRate, ownerDailyRate: ownerShare } = getDailyRates(c);
-              return `
-                <div style="font-size:13px;font-weight:700;color:var(--emerald-400)">${fmt(dailyRate)}/${state.lang === 'ta' ? 'நாள்' : 'day'}</div>
-                <div class="text-xs text-muted">${t('owner_prefix')}${fmt(ownerShare)}</div>
-              `;
-            })()}
+            <div style="font-size:13px;font-weight:700;color:var(--emerald-400)">${fmt(monthlyInterest(c))}</div>
+            <div class="text-xs text-muted">${t('owner_prefix')}${fmt(ownerProfit(c))}</div>
             ${c.hasAgent ? `<div class="badge badge-agent mt-1" style="font-size:10px"><svg class="ui-icon" style="width:12px;height:12px;margin-right:4px" viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>${escHtml(c.agentName)}</div>` : ''}
           </div>
         </div>
       </div>
     `;
-  }
-
-  // Render Daily Desktop Table
-  if (dailyList.length === 0) {
-    dailyTbody.innerHTML = `
-      <tr><td colspan="9">
-        <div class="empty-state" style="padding: 20px;">
-          <div class="empty-icon" style="margin-bottom: 6px;"><svg class="ui-icon" style="width:36px;height:36px" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="8" y1="12" x2="16" y2="12"/></svg></div>
-          <div class="empty-title" style="font-size: 13px;">${state.lang === 'ta' ? 'தினசரி கடன்கள் ஏதுமில்லை' : 'No daily loans found'}</div>
-        </div>
-      </td></tr>
-    `;
-  } else {
-    dailyTbody.innerHTML = dailyList.map(c => getRowHtml(c)).join('');
   }
 
   // Render Monthly Desktop Table
@@ -4186,17 +3358,6 @@ function renderCustomerList() {
     `;
   } else {
     monthlyTbody.innerHTML = monthlyList.map(c => getRowHtml(c)).join('');
-  }
-
-  // Render Daily Mobile Cards
-  if (dailyList.length === 0) {
-    dailyCardsBody.innerHTML = `
-      <div class="empty-state" style="padding: 16px;">
-        <div class="empty-title" style="font-size: 13px;">${state.lang === 'ta' ? 'தினசரி கடன்கள் ஏதுமில்லை' : 'No daily loans found'}</div>
-      </div>
-    `;
-  } else {
-    dailyCardsBody.innerHTML = dailyList.map(c => getCardHtml(c)).join('');
   }
 
   // Render Monthly Mobile Cards
@@ -4236,15 +3397,14 @@ function renderDetailPanel() {
   ` : '';
 
   // ── MONTHLY: profit-split section with fixed arbitrage splits ──
-  const profitSplit = c.loanType === 'monthly' ? (() => {
-    const currentMonthIdx = getCurrentMonthIndex(c);
-    const activeP = getActivePrincipalForMonth(c, currentMonthIdx);
-    const grossVal = (activeP * MONTHLY_CUSTOMER_RATE) / 100;
-    const invCostVal = (activeP * INVESTOR_RATE) / 100;
-    const agCommVal = c.hasAgent ? (activeP * AGENT_COMMISSION_RATE) / 100 : 0;
-    const ownProfVal = grossVal - invCostVal - agCommVal;
+  const currentMonthIdx = getCurrentMonthIndex(c);
+  const activeP = getActivePrincipalForMonth(c, currentMonthIdx);
+  const grossVal = (activeP * MONTHLY_CUSTOMER_RATE) / 100;
+  const invCostVal = (activeP * INVESTOR_RATE) / 100;
+  const agCommVal = c.hasAgent ? (activeP * AGENT_COMMISSION_RATE) / 100 : 0;
+  const ownProfVal = grossVal - invCostVal - agCommVal;
 
-    return `
+  const profitSplit = `
     <div class="detail-section">
       <div class="detail-section-title">${t('profit_split_monthly')}</div>
       <div class="profit-breakdown">
@@ -4267,332 +3427,127 @@ function renderDetailPanel() {
         </div>
       </div>
     </div>`;
-  })() : (() => {
-    // ── DAILY: dynamic profit-split calculator ──
-    const BaseDailyRate = Number(c.dailyInterestRate !== undefined && c.dailyInterestRate !== null ? c.dailyInterestRate : (c.dailyRate || 0));
-    const InvestorRatePerDay = Number(c.investorPerDayRate !== undefined && c.investorPerDayRate !== null ? c.investorPerDayRate : (c.investorSplitPercent || 0));
-    const AgentRatePerDay = Number(c.agentPerDayRate !== undefined && c.agentPerDayRate !== null ? c.agentPerDayRate : (c.agentSplitPercent || 0));
-    
-    const startD = c.startDate || c.createdAt?.slice(0, 10) || getLocalToday();
-    const endD = c.endDate || getLocalToday();
-    const calculatedDays = daysBetweenInclusive(startD, endD);
-    const TotalContractDays = Number(c.daysActive !== undefined && c.daysActive !== null ? c.daysActive : calculatedDays);
-
-    const Net_Per_Day = BaseDailyRate - InvestorRatePerDay - AgentRatePerDay;
-
-    const grossFullTenure = BaseDailyRate * TotalContractDays;
-    const investorCostFullTenure = InvestorRatePerDay * TotalContractDays;
-    const agentPayFullTenure = AgentRatePerDay * TotalContractDays;
-    const ownerNetFullTenure = Net_Per_Day * TotalContractDays;
-
-    return `
-    <div class="detail-section">
-      <div class="detail-section-title">
-        <span>${state.lang === 'ta' ? 'தினசரி வட்டி பகிர்வு' : 'Daily Interest Split'}</span>
-      </div>
-      <div class="profit-breakdown" id="dmBreakdown">
-        <div class="profit-row gross">
-          <span class="profit-row-label">${state.lang === 'ta' ? 'மொத்த வட்டி (முழு காலம்)' : 'Gross Interest (Full Tenure)'} (${TotalContractDays} ${t('days_suffix')})</span>
-          <span class="profit-row-amount">${fmt(grossFullTenure)}</span>
-        </div>
-        <div class="profit-row deduct">
-          <span class="profit-row-label">
-            ${state.lang === 'ta' ? 'முதலீட்டாளர் பங்கு' : 'Investor Share'} (₹${InvestorRatePerDay}/day)
-          </span>
-          <span class="profit-row-amount">${InvestorRatePerDay > 0 ? `−${fmt(investorCostFullTenure)}` : '−₹0'}</span>
-        </div>
-        ${c.hasAgent || AgentRatePerDay > 0 ? `
-        <div class="profit-row deduct-agent">
-          <span class="profit-row-label">
-            ${state.lang === 'ta' ? 'முகவர் பங்கு' : 'Agent Share'} (₹${AgentRatePerDay}/day)
-          </span>
-          <span class="profit-row-amount">${AgentRatePerDay > 0 ? `−${fmt(agentPayFullTenure)}` : '−₹0'}</span>
-        </div>` : ''}
-        <div class="profit-row net">
-          <span class="profit-row-label" style="font-weight:800">
-            ${state.lang === 'ta' ? 'உரிமையாளர் பங்கு' : 'Owner Share'} (₹${Net_Per_Day.toFixed(2)}/day)
-          </span>
-          <span class="profit-row-amount" style="font-weight:800">${fmt(ownerNetFullTenure)}</span>
-        </div>
-      </div>
-    </div>`;
-  })();
 
 
   const interestAccrued = Math.round(getAccruedInterest(c));
   const remaining = getRemainingBalance(c);
 
-  let paymentLedgerHtml = '';
-  if (c.loanType === 'monthly') {
-    ensureCustomerPaymentsInitialized(c);
-    const isPaid = !!c.currentMonthInterestPaid;
-    const rate = MONTHLY_CUSTOMER_RATE - INVESTOR_RATE - (c.hasAgent ? AGENT_COMMISSION_RATE : 0);
-    const ownerFraction = rate / MONTHLY_CUSTOMER_RATE;
-    const remainingP = Math.max(0, p - (c.paidPrincipal || 0));
-    const remainingI = (interestAccrued - (c.paidInterest || 0)) * ownerFraction;
-    const remainingTotal = remainingP + remainingI;
+  ensureCustomerPaymentsInitialized(c);
+  const isPaid = !!c.currentMonthInterestPaid;
+  const rate = MONTHLY_CUSTOMER_RATE - INVESTOR_RATE - (c.hasAgent ? AGENT_COMMISSION_RATE : 0);
+  const ownerFraction = rate / MONTHLY_CUSTOMER_RATE;
+  const remainingP = Math.max(0, p - (c.paidPrincipal || 0));
+  const remainingI = (interestAccrued - (c.paidInterest || 0)) * ownerFraction;
+  const remainingTotal = remainingP + remainingI;
 
-    const langIsTA = state.lang === 'ta';
-    const currentMonthHtml = `
-      <div class="detail-section" style="margin-top:14px">
-        <div class="switch-row" onclick="toggleCurrentMonthInterestPaid('${c.id}')" role="checkbox" tabindex="0" aria-checked="${isPaid}" style="padding:10px 14px;border:1px solid var(--border-card);border-radius:12px;background:rgba(255,255,255,0.02);cursor:pointer">
-          <div class="switch-row-label">
-            <strong style="font-size:13px;color:var(--text-primary)">
-              ${langIsTA ? 'இந்த மாத வட்டியை செலுத்தியதாகக் குறிக்கவும்' : 'Mark Current Month Interest as Paid'}
-            </strong>
-            <div style="font-size:11px;color:var(--text-muted)">
-              ${langIsTA ? 'இந்த மாத வட்டி: ' : 'Current month interest is '}<strong>${isPaid ? (langIsTA ? 'செலுத்தப்பட்டது' : 'Paid') : (langIsTA ? 'செலுத்தப்படவில்லை (வளரும்)' : 'Unpaid (Accruing)')}</strong>
-            </div>
+  const langIsTA = state.lang === 'ta';
+  const currentMonthHtml = `
+    <div class="detail-section" style="margin-top:14px">
+      <div class="switch-row" onclick="toggleCurrentMonthInterestPaid('${c.id}')" role="checkbox" tabindex="0" aria-checked="${isPaid}" style="padding:10px 14px;border:1px solid var(--border-card);border-radius:12px;background:rgba(255,255,255,0.02);cursor:pointer">
+        <div class="switch-row-label">
+          <strong style="font-size:13px;color:var(--text-primary)">
+            ${langIsTA ? 'இந்த மாத வட்டியை செலுத்தியதாகக் குறிக்கவும்' : 'Mark Current Month Interest as Paid'}
+          </strong>
+          <div style="font-size:11px;color:var(--text-muted)">
+            ${langIsTA ? 'இந்த மாத வட்டி: ' : 'Current month interest is '}<strong>${isPaid ? (langIsTA ? 'செலுத்தப்பட்டது' : 'Paid') : (langIsTA ? 'செலுத்தப்படவில்லை (வளரும்)' : 'Unpaid (Accruing)')}</strong>
           </div>
-          <div class="switch ${isPaid ? 'on' : ''}" aria-hidden="true"></div>
+        </div>
+        <div class="switch ${isPaid ? 'on' : ''}" aria-hidden="true"></div>
+      </div>
+    </div>
+  `;
+
+  const recordPaymentFormHtml = `
+    <div class="detail-section ledger-card" style="background:rgba(255,255,255,0.02);border:1px solid var(--border-card);border-radius:12px;padding:12px;margin-top:14px">
+      <div class="detail-section-title" style="margin-bottom:10px">${langIsTA ? 'புதிய கட்டணத்தைப் பதிவுசெய்க' : 'Record New Payment'}</div>
+      <div style="display:grid;grid-template-columns:1.2fr 1fr;gap:10px;margin-bottom:10px">
+        <div class="form-group" style="margin:0">
+          <label class="form-label" style="font-size:11px">${langIsTA ? 'கட்டண வகை' : 'Payment Type'}</label>
+          <select id="recPaymentType" class="form-input" onchange="updateDynamicRemainingInterest()" style="height:32px;font-size:13px;padding:4px 8px;background:var(--bg-card);border-radius:8px">
+            <option value="interest">${langIsTA ? 'வட்டி செலுத்துதல்' : 'Pay Interest'}</option>
+            <option value="principal">${langIsTA ? 'அசல் செலுத்துதல்' : 'Pay Principal'}</option>
+          </select>
+        </div>
+        <div class="form-group" style="margin:0">
+          <label class="form-label" style="font-size:11px">${langIsTA ? 'தொகை (₹)' : 'Amount (₹)'}</label>
+          <input type="number" id="recPaymentAmount" class="form-input" oninput="updateDynamicRemainingInterest()" placeholder="0" min="1" style="height:32px;font-size:13px;padding:4px 8px" />
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:1.2fr 1fr;gap:10px;margin-bottom:12px;align-items:end">
+        <div class="form-group" style="margin:0">
+          <label class="form-label" style="font-size:11px">${langIsTA ? 'தேதி' : 'Date'}</label>
+          <input type="date" id="recPaymentDate" class="form-input" style="height:32px;font-size:13px;padding:4px 8px" value="${getLocalToday()}" />
+        </div>
+        <button class="btn btn-primary" onclick="addMonthlyPayment('${c.id}')" style="height:32px;font-size:12px;padding:0 12px;border-radius:8px;font-weight:600">
+          ${langIsTA ? 'பதிவுசெய்க' : 'Record Payment'}
+        </button>
+      </div>
+    </div>
+  `;
+
+  const historyRows = (c.payments || []).map(pay => {
+    const typeLabel = pay.type === 'principal' ? (langIsTA ? 'அசல்' : 'Principal') : (langIsTA ? 'வட்டி' : 'Interest');
+    const typeColor = pay.type === 'principal' ? 'var(--blue-400)' : 'var(--emerald-400)';
+    return `
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.05);font-size:12px">
+        <div style="display:flex;flex-direction:column">
+          <span style="color:var(--text-primary);font-weight:500">${fmtDate(pay.date)}</span>
+          <span style="font-size:10px;color:${typeColor}">${typeLabel}</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <span style="font-weight:600;color:var(--rose-400)">-${fmt(pay.amount)}</span>
+          <button onclick="deleteMonthlyPayment('${c.id}', '${pay.id}')" style="background:none;border:none;color:var(--rose-500);cursor:pointer;padding:2px 4px;font-size:14px;opacity:0.7" onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=0.7" title="${langIsTA ? 'அழி' : 'Delete'}">✕</button>
         </div>
       </div>
     `;
+  }).join('');
 
-    const recordPaymentFormHtml = `
-      <div class="detail-section ledger-card" style="background:rgba(255,255,255,0.02);border:1px solid var(--border-card);border-radius:12px;padding:12px;margin-top:14px">
-        <div class="detail-section-title" style="margin-bottom:10px">${langIsTA ? 'புதிய கட்டணத்தைப் பதிவுசெய்க' : 'Record New Payment'}</div>
-        <div style="display:grid;grid-template-columns:1.2fr 1fr;gap:10px;margin-bottom:10px">
-          <div class="form-group" style="margin:0">
-            <label class="form-label" style="font-size:11px">${langIsTA ? 'கட்டண வகை' : 'Payment Type'}</label>
-            <select id="recPaymentType" class="form-input" onchange="updateDynamicRemainingInterest()" style="height:32px;font-size:13px;padding:4px 8px;background:var(--bg-card);border-radius:8px">
-              <option value="interest">${langIsTA ? 'வட்டி செலுத்துதல்' : 'Pay Interest'}</option>
-              <option value="principal">${langIsTA ? 'அசல் செலுத்துதல்' : 'Pay Principal'}</option>
-            </select>
-          </div>
-          <div class="form-group" style="margin:0">
-            <label class="form-label" style="font-size:11px">${langIsTA ? 'தொகை (₹)' : 'Amount (₹)'}</label>
-            <input type="number" id="recPaymentAmount" class="form-input" oninput="updateDynamicRemainingInterest()" placeholder="0" min="1" style="height:32px;font-size:13px;padding:4px 8px" />
-          </div>
+  const historySectionHtml = `
+    <div class="detail-section ledger-card" style="background:rgba(255,255,255,0.02);border:1px solid var(--border-card);border-radius:12px;padding:12px;margin-top:14px">
+      <div class="detail-section-title" style="margin-bottom:8px">${langIsTA ? 'கட்டண வரலாறு' : 'Payment History'}</div>
+      <div style="max-height:150px;overflow-y:auto;padding-right:4px">
+        ${historyRows.length ? historyRows : `<div style="text-align:center;padding:12px;font-size:11px;color:var(--text-muted)">${langIsTA ? 'கட்டணங்கள் எதுவும் பதிவு செய்யப்படவில்லை' : 'No payments recorded yet'}</div>`}
+      </div>
+    </div>
+  `;
+
+  const breakdownSectionHtml = `
+    <div class="detail-section ledger-card" style="margin-top:14px">
+      <div class="detail-section-title" style="margin-bottom:12px">${langIsTA ? 'இருப்பு விவரம்' : 'Balance Breakdown'}</div>
+      <div class="fintech-cards-grid">
+        <!-- Loan Amount Card -->
+        <div class="fintech-card card-loan-amount">
+          <span class="fintech-card-label">${langIsTA ? 'கடன் தொகை' : 'LOAN AMOUNT'}</span>
+          <span class="fintech-card-value">${fmt(p)}</span>
         </div>
-        <div style="display:grid;grid-template-columns:1.2fr 1fr;gap:10px;margin-bottom:12px;align-items:end">
-          <div class="form-group" style="margin:0">
-            <label class="form-label" style="font-size:11px">${langIsTA ? 'தேதி' : 'Date'}</label>
-            <input type="date" id="recPaymentDate" class="form-input" style="height:32px;font-size:13px;padding:4px 8px" value="${getLocalToday()}" />
-          </div>
-          <button class="btn btn-primary" onclick="addMonthlyPayment('${c.id}')" style="height:32px;font-size:12px;padding:0 12px;border-radius:8px;font-weight:600">
-            ${langIsTA ? 'பதிவுசெய்க' : 'Record Payment'}
-          </button>
+
+        <!-- Interest Collected Card -->
+        <div class="fintech-card card-interest-collected">
+          <span class="fintech-card-label">${langIsTA ? 'வசூலிக்கப்பட்ட வட்டி' : 'INTEREST COLLECTED'}</span>
+          <span class="fintech-card-value">${fmt(c.paidInterest || 0)}</span>
+        </div>
+
+        <!-- Pending Interest Card -->
+        <div class="fintech-card card-pending-interest">
+          <span class="fintech-card-label">${langIsTA ? 'உரிமையாளர் வட்டி நிலுவை' : 'PENDING OWNER PROFIT'}</span>
+          <span class="fintech-card-value" id="valRemainingInterestDue" data-base-value="${remainingI}" data-owner-fraction="${ownerFraction}">${remainingI >= 0 ? '+' : ''}${fmt(remainingI)}</span>
+        </div>
+
+        <!-- Total Outstanding Card (Full-Width Span) -->
+        <div class="fintech-card card-total-outstanding">
+          <span class="fintech-card-label">${langIsTA ? 'நிலுவை தொகை' : 'TOTAL OUTSTANDING'}</span>
+          <span class="fintech-card-value">${fmt(remainingTotal)}</span>
         </div>
       </div>
-    `;
+    </div>
+  `;
 
-    const historyRows = (c.payments || []).map(pay => {
-      const typeLabel = pay.type === 'principal' ? (langIsTA ? 'அசல்' : 'Principal') : (langIsTA ? 'வட்டி' : 'Interest');
-      const typeColor = pay.type === 'principal' ? 'var(--blue-400)' : 'var(--emerald-400)';
-      return `
-        <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.05);font-size:12px">
-          <div style="display:flex;flex-direction:column">
-            <span style="color:var(--text-primary);font-weight:500">${fmtDate(pay.date)}</span>
-            <span style="font-size:10px;color:${typeColor}">${typeLabel}</span>
-          </div>
-          <div style="display:flex;align-items:center;gap:8px">
-            <span style="font-weight:600;color:var(--rose-400)">-${fmt(pay.amount)}</span>
-            <button onclick="deleteMonthlyPayment('${c.id}', '${pay.id}')" style="background:none;border:none;color:var(--rose-500);cursor:pointer;padding:2px 4px;font-size:14px;opacity:0.7" onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=0.7" title="${langIsTA ? 'அழி' : 'Delete'}">✕</button>
-          </div>
-        </div>
-      `;
-    }).join('');
-
-    const historySectionHtml = `
-      <div class="detail-section ledger-card" style="background:rgba(255,255,255,0.02);border:1px solid var(--border-card);border-radius:12px;padding:12px;margin-top:14px">
-        <div class="detail-section-title" style="margin-bottom:8px">${langIsTA ? 'கட்டண வரலாறு' : 'Payment History'}</div>
-        <div style="max-height:150px;overflow-y:auto;padding-right:4px">
-          ${historyRows.length ? historyRows : `<div style="text-align:center;padding:12px;font-size:11px;color:var(--text-muted)">${langIsTA ? 'கட்டணங்கள் எதுவும் பதிவு செய்யப்படவில்லை' : 'No payments recorded yet'}</div>`}
-        </div>
-      </div>
-    `;
-
-    const breakdownSectionHtml = `
-      <div class="detail-section ledger-card" style="margin-top:14px">
-        <div class="detail-section-title" style="margin-bottom:12px">${langIsTA ? 'இருப்பு விவரம்' : 'Balance Breakdown'}</div>
-        <div class="fintech-cards-grid">
-          <!-- Loan Amount Card -->
-          <div class="fintech-card card-loan-amount">
-            <span class="fintech-card-label">${langIsTA ? 'கடன் தொகை' : 'LOAN AMOUNT'}</span>
-            <span class="fintech-card-value">${fmt(p)}</span>
-          </div>
-
-          <!-- Interest Collected Card -->
-          <div class="fintech-card card-interest-collected">
-            <span class="fintech-card-label">${langIsTA ? 'வசூலிக்கப்பட்ட வட்டி' : 'INTEREST COLLECTED'}</span>
-            <span class="fintech-card-value">${fmt(c.paidInterest || 0)}</span>
-          </div>
-
-          <!-- Pending Interest Card -->
-          <div class="fintech-card card-pending-interest">
-            <span class="fintech-card-label">${langIsTA ? 'உரிமையாளர் வட்டி நிலுவை' : 'PENDING OWNER PROFIT'}</span>
-            <span class="fintech-card-value" id="valRemainingInterestDue" data-base-value="${remainingI}" data-owner-fraction="${ownerFraction}">${remainingI >= 0 ? '+' : ''}${fmt(remainingI)}</span>
-          </div>
-
-          <!-- Total Outstanding Card (Full-Width Span) -->
-          <div class="fintech-card card-total-outstanding">
-            <span class="fintech-card-label">${langIsTA ? 'நிலுவை தொகை' : 'TOTAL OUTSTANDING'}</span>
-            <span class="fintech-card-value">${fmt(remainingTotal)}</span>
-          </div>
-        </div>
-      </div>
-    `;
-
-    paymentLedgerHtml = `
-      ${currentMonthHtml}
-      ${recordPaymentFormHtml}
-      ${breakdownSectionHtml}
-      ${historySectionHtml}
-    `;
-  } else {
-    ensureCustomerPaymentsInitialized(c);
-    const langIsTA = state.lang === 'ta';
-    
-    // --- FORCE-FIX RULE 1: DYNAMIC ELAPSED DAYS CALCULATOR (Inclusive) ---
-    const startD = c.startDate || c.createdAt?.slice(0, 10) || getLocalToday();
-    const endD = c.endDate || getLocalToday();
-    
-    // Forcefully calculate the exact total number of active days elapsed (inclusive calculation)
-    const calculatedDays = daysBetweenInclusive(startD, endD);
-    let elapsedDays = Number(c.daysActive !== undefined && c.daysActive !== null ? c.daysActive : calculatedDays);
-    
-    // --- FORCE-FIX RULE 2: ENFORCE THE CORRECT BASE VALUES ---
-    const customDailyRate = Number(c.dailyInterestRate !== undefined && c.dailyInterestRate !== null ? c.dailyInterestRate : (c.dailyRate || 0));
-    const totalAccruedInterest = elapsedDays * customDailyRate;
-    const totalInterestDue = totalAccruedInterest;
-
-    const activeDates = getDailyActiveDates(c);
-    const isTodayPaid = (c.dailyPaidDates || []).includes(getLocalToday());
-    const todayInterestVal = customDailyRate;
-    
-    const todayInterestHtml = `
-      <div class="detail-section" style="margin-top:14px">
-        <div class="switch-row" onclick="toggleDailyLoanInterestPaid('${c.id}')" role="checkbox" tabindex="0" aria-checked="${isTodayPaid}" style="padding:10px 14px;border:1px solid var(--border-card);border-radius:12px;background:rgba(255,255,255,0.02);cursor:pointer">
-          <div class="switch-row-label">
-            <strong style="font-size:13px;color:var(--text-primary)">
-              ${langIsTA ? 'இன்றைய வட்டியை செலுத்தியதாகக் குறிக்கவும்' : "Mark Today's Interest as Paid"}
-            </strong>
-            <div style="font-size:11px;color:var(--text-muted)">
-              ${langIsTA ? 'இன்றைய வட்டி: ' : "Today's interest is "}<strong>${fmt(todayInterestVal)} (${isTodayPaid ? (langIsTA ? 'செலுத்தப்பட்டது' : 'Paid') : (langIsTA ? 'செலுத்தப்படவில்லை' : 'Unpaid')})</strong>
-            </div>
-          </div>
-          <div class="switch ${isTodayPaid ? 'on' : ''}" aria-hidden="true"></div>
-        </div>
-      </div>
-    `;
-
-    const recordPaymentFormHtml = `
-      <div class="detail-section ledger-card" style="background:rgba(255,255,255,0.02);border:1px solid var(--border-card);border-radius:12px;padding:12px;margin-top:14px">
-        <div class="detail-section-title" style="margin-bottom:10px">${langIsTA ? 'புதிய கட்டணத்தைப் பதிவுசெய்க' : 'Record New Payment'}</div>
-        <div style="display:grid;grid-template-columns:1.2fr 1fr;gap:10px;margin-bottom:10px">
-          <div class="form-group" style="margin:0">
-            <label class="form-label" style="font-size:11px">${langIsTA ? 'கட்டண வகை' : 'Payment Type'}</label>
-            <select id="recPaymentType" class="form-input" onchange="updateDynamicRemainingInterest()" style="height:32px;font-size:13px;padding:4px 8px;background:var(--bg-card);border-radius:8px">
-              <option value="interest">${langIsTA ? 'வட்டி செலுத்துதல்' : 'Pay Interest'}</option>
-              <option value="principal">${langIsTA ? 'அசல் செலுத்துதல்' : 'Pay Principal'}</option>
-            </select>
-          </div>
-          <div class="form-group" style="margin:0">
-            <label class="form-label" style="font-size:11px">${langIsTA ? 'தொகை (₹)' : 'Amount (₹)'}</label>
-            <input type="number" id="recPaymentAmount" class="form-input" oninput="updateDynamicRemainingInterest()" placeholder="0" min="1" style="height:32px;font-size:13px;padding:4px 8px" />
-          </div>
-        </div>
-        <div style="display:grid;grid-template-columns:1.2fr 1fr;gap:10px;margin-bottom:12px;align-items:end">
-          <div class="form-group" style="margin:0">
-            <label class="form-label" style="font-size:11px">${langIsTA ? 'தேதி' : 'Date'}</label>
-            <input type="date" id="recPaymentDate" class="form-input" style="height:32px;font-size:13px;padding:4px 8px" value="${getLocalToday()}" />
-          </div>
-          <button class="btn btn-primary" onclick="addDailyPayment('${c.id}')" style="height:32px;font-size:12px;padding:0 12px;border-radius:8px;font-weight:600">
-            ${langIsTA ? 'பதிவுசெய்க' : 'Record Payment'}
-          </button>
-        </div>
-      </div>
-    `;
-
-    const parsedPrincipal = Number(p) || 0;
-    const interestPaid = getCustomerPaidInterest(c);
-    const principalPaid = getCustomerPaidPrincipal(c);
-    const remainingP = Math.max(0, parsedPrincipal - principalPaid);
-    
-    const { rate, ownerDailyRate } = getDailyRates(c);
-    const ownerFraction = rate > 0 ? (ownerDailyRate / rate) : 0;
-    
-    const remainingInterestDue = (customDailyRate * elapsedDays - interestPaid) * ownerFraction;
-    const remainingTotal = remainingP + remainingInterestDue;
-
-    const realizedOwnerProfit = (c.payments || [])
-      .filter(p => (p.type === 'interest' || p.type === 'Interest') && (p.status === 'Paid' || !p.status))
-      .reduce((sum, p) => sum + (p.amount * ownerFraction), 0);
-    const roundedRealizedOwnerProfit = Math.round(realizedOwnerProfit);
-
-    const pendingSign = remainingInterestDue < 0 ? '' : '+';
-
-    const breakdownSectionHtml = `
-      <div class="detail-section ledger-card" style="margin-top:14px">
-        <div class="detail-section-title" style="margin-bottom:12px">${langIsTA ? 'இருப்பு விவரம்' : 'Balance Breakdown'}</div>
-        <div class="fintech-cards-grid">
-          <!-- Loan Amount Card -->
-          <div class="fintech-card card-loan-amount">
-            <span class="fintech-card-label">${langIsTA ? 'கடன் தொகை' : 'LOAN AMOUNT'}</span>
-            <span class="fintech-card-value">${fmt(p)}</span>
-          </div>
-
-          <!-- Interest Collected Card -->
-          <div class="fintech-card card-interest-collected">
-            <span class="fintech-card-label">${langIsTA ? 'வசூலிக்கப்பட்ட வட்டி' : 'AMOUNT RECEIVED / COLLECTED'}</span>
-            <span class="fintech-card-value">${fmt(interestPaid)}</span>
-          </div>
-
-          <!-- Pending Interest Card -->
-          <div class="fintech-card card-pending-interest">
-            <span class="fintech-card-label">${langIsTA ? 'உரிமையாளர் வட்டி நிலுவை' : 'PENDING OWNER PROFIT'}</span>
-            <span class="fintech-card-value" id="valRemainingInterestDue" data-base-value="${remainingInterestDue}" data-owner-fraction="${ownerFraction}">${pendingSign}${fmt(remainingInterestDue)}</span>
-          </div>
-
-          <!-- Total Outstanding Card (Full-Width Span) -->
-          <div class="fintech-card card-total-outstanding">
-            <span class="fintech-card-label">${langIsTA ? 'நிலுவை தொகை' : 'TOTAL OUTSTANDING'}</span>
-            <span class="fintech-card-value">${fmt(remainingTotal)}</span>
-          </div>
-        </div>
-
-        <!-- Realized Owner Profit Cumulative Tracker -->
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-top:12px;padding:12px;background:rgba(16,185,129,0.05);border:1px solid rgba(16,185,129,0.15);border-radius:12px;font-size:13px;font-weight:700">
-          <span style="color:var(--emerald-400)">${langIsTA ? 'மொத்த உரிமையாளர் லாபம்' : 'Total Realized Owner Profit'}</span>
-          <span style="color:var(--emerald-400);font-size:15px;font-weight:800" id="realizedOwnerProfit">₹${roundedRealizedOwnerProfit.toLocaleString('en-IN')}</span>
-        </div>
-      </div>
-    `;
-
-    const historyRows = (c.payments || []).map(pay => {
-      const typeLabel = pay.type === 'principal' ? (langIsTA ? 'அசல்' : 'Principal') : (langIsTA ? 'வட்டி' : 'Interest');
-      const typeColor = pay.type === 'principal' ? 'var(--blue-400)' : 'var(--emerald-400)';
-      return `
-        <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.05);font-size:12px">
-          <div style="display:flex;flex-direction:column">
-            <span style="color:var(--text-primary);font-weight:500">${fmtDate(pay.date)}</span>
-            <span style="font-size:10px;color:${typeColor}">${typeLabel}</span>
-          </div>
-          <div style="display:flex;align-items:center;gap:8px">
-            <span style="font-weight:600;color:var(--rose-400)">-${fmt(pay.amount)}</span>
-            <button onclick="deleteDailyPayment('${c.id}', '${pay.id}')" style="background:none;border:none;color:var(--rose-500);cursor:pointer;padding:2px 4px;font-size:14px;opacity:0.7" onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=0.7" title="${langIsTA ? 'அழி' : 'Delete'}">✕</button>
-          </div>
-        </div>
-      `;
-    }).join('');
-
-    const historySectionHtml = `
-      <div class="detail-section ledger-card" style="background:rgba(255,255,255,0.02);border:1px solid var(--border-card);border-radius:12px;padding:12px;margin-top:14px">
-        <div class="detail-section-title" style="margin-bottom:8px">${langIsTA ? 'கட்டண வரலாறு' : 'Payment History'}</div>
-        <div style="max-height:150px;overflow-y:auto;padding-right:4px">
-          ${historyRows.length ? historyRows : `<div style="text-align:center;padding:12px;font-size:11px;color:var(--text-muted)">${langIsTA ? 'கட்டணங்கள் எதுவும் பதிவு செய்யப்படவில்லை' : 'No payments recorded yet'}</div>`}
-        </div>
-      </div>
-    `;
-
-    paymentLedgerHtml = `
-      ${todayInterestHtml}
-      ${recordPaymentFormHtml}
-      ${breakdownSectionHtml}
-      ${historySectionHtml}
-    `;
-  }
+  const paymentLedgerHtml = `
+    ${currentMonthHtml}
+    ${recordPaymentFormHtml}
+    ${breakdownSectionHtml}
+    ${historySectionHtml}
+  `;
 
   el.innerHTML = `
     <div class="detail-panel-header">
@@ -4609,7 +3564,7 @@ function renderDetailPanel() {
         </div>
         <div style="display:flex;gap:6px;flex-wrap:wrap">
           <span class="badge badge-${c.status}">${c.status === 'active' ? t('active_status') : t('closed_status')}</span>
-          <span class="badge badge-${c.loanType}">${c.loanType === 'monthly' ? t('monthly_badge') : t('daily_badge')}</span>
+          <span class="badge badge-monthly">${t('monthly_badge')}</span>
           ${c.hasAgent ? `<span class="badge badge-agent"><svg class="ui-icon" style="width:12px;height:12px;margin-right:4px" viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>${escHtml(c.agentName)}</span>` : ''}
         </div>
       </div>
@@ -4625,21 +3580,11 @@ function renderDetailPanel() {
         </div>
         <div class="stat-item">
           <div class="stat-key">${t('interest_label')}</div>
-          <div class="stat-val">${c.loanType === 'monthly' ? fmt(monthlyInterest(c), true) + '/' + (state.lang === 'ta' ? 'மா' : 'mo') : '₹' + (c.dailyInterestRate !== undefined && c.dailyInterestRate !== null ? c.dailyInterestRate : c.dailyRate) + '/' + (state.lang === 'ta' ? 'நாள்' : 'day')}</div>
+          <div class="stat-val">${fmt(monthlyInterest(c), true) + '/' + (state.lang === 'ta' ? 'மா' : 'mo')}</div>
         </div>
         <div class="stat-item">
-          <div class="stat-key">
-            ${c.loanType === 'monthly'
-              ? (state.lang === 'ta' ? 'செயலில் உள்ள மாதங்கள்' : 'MONTHS ACTIVE')
-              : (state.lang === 'ta' ? 'செயலில் உள்ள நாட்கள்' : 'DAYS ACTIVE')
-            }
-          </div>
-          <div class="stat-val">
-            ${c.loanType === 'monthly' 
-              ? getCurrentMonthIndex(c)
-              : (c.daysActive !== undefined && c.daysActive !== null ? c.daysActive : daysBetweenInclusive(c.startDate || c.createdAt?.slice(0,10), c.endDate || getLocalToday()))
-            }
-          </div>
+          <div class="stat-key">${state.lang === 'ta' ? 'செயலில் உள்ள மாதங்கள்' : 'MONTHS ACTIVE'}</div>
+          <div class="stat-val">${getCurrentMonthIndex(c)}</div>
         </div>
       </div>
 
@@ -4661,7 +3606,7 @@ function renderDetailPanel() {
         </div>` : ''}
         <div class="detail-row">
           <span class="detail-row-label">${t('loan_type_label')}</span>
-          <span class="detail-row-value">${c.loanType === 'monthly' ? t('monthly_loan_type_desc') : t('daily_loan_type_desc', { rate: (c.dailyInterestRate !== undefined && c.dailyInterestRate !== null ? c.dailyInterestRate : c.dailyRate) })}</span>
+          <span class="detail-row-value">${t('monthly_loan_type_desc')}</span>
         </div>
         ${c.notes ? `
         <div class="detail-row">
@@ -4715,25 +3660,12 @@ function downloadLoanSummaryPDF(customerId) {
   
   const fromVal = document.getElementById('drFrom')?.value || startD;
   const toVal = document.getElementById('drTo')?.value || (c.status === 'closed' ? (c.endDate || today) : today);
-  const days = c.loanType === 'daily' ? daysBetweenInclusive(fromVal, toVal) : Math.max(1, daysBetween(fromVal, toVal));
+  const days = Math.max(1, daysBetween(fromVal, toVal));
 
-  let grossInterest = 0;
-  let invCost = 0;
-  let agComm = 0;
-  let ownProf = 0;
-
-  if (c.loanType === 'monthly') {
-    grossInterest = Math.max(0, getAccruedInterestUpTo(c, toVal) - getAccruedInterestUpTo(c, fromVal));
-    invCost = Math.max(0, getAccruedInvestorCostUpTo(c, toVal) - getAccruedInvestorCostUpTo(c, fromVal));
-    agComm = Math.max(0, getAccruedAgentCommissionUpTo(c, toVal) - getAccruedAgentCommissionUpTo(c, fromVal));
-    ownProf = grossInterest - invCost - agComm;
-  } else { // daily
-    const dm = getDailyAccruedMetricsForRange(c, fromVal, toVal);
-    grossInterest = dm.gross;
-    invCost = dm.investorCost;
-    agComm = dm.agentPay;
-    ownProf = dm.ownerNet;
-  }
+  const grossInterest = Math.max(0, getAccruedInterestUpTo(c, toVal) - getAccruedInterestUpTo(c, fromVal));
+  const invCost = Math.max(0, getAccruedInvestorCostUpTo(c, toVal) - getAccruedInvestorCostUpTo(c, fromVal));
+  const agComm = Math.max(0, getAccruedAgentCommissionUpTo(c, toVal) - getAccruedAgentCommissionUpTo(c, fromVal));
+  const ownProf = grossInterest - invCost - agComm;
 
   const interestPaid = Number(c.paidInterest) || 0;
   const principalPaid = Number(c.paidPrincipal) || 0;
@@ -4811,7 +3743,7 @@ function downloadLoanSummaryPDF(customerId) {
   doc.setFont("helvetica", "normal");
   doc.text("Loan Type:", 110, y);
   doc.setFont("helvetica", "bold");
-  doc.text(c.loanType === 'monthly' ? "Monthly Interest" : "Daily Interest", 145, y);
+  doc.text("Monthly Interest", 145, y);
   y += 7;
 
   doc.setFont("helvetica", "normal");
@@ -4822,7 +3754,7 @@ function downloadLoanSummaryPDF(customerId) {
   doc.setFont("helvetica", "normal");
   doc.text("Interest Rate:", 110, y);
   doc.setFont("helvetica", "bold");
-  doc.text(c.loanType === 'monthly' ? "3% per month" : `Rs. ${c.dailyInterestRate !== undefined && c.dailyInterestRate !== null ? c.dailyInterestRate : c.dailyRate} per day`, 145, y);
+  doc.text("3% per month", 145, y);
   y += 7;
 
   if (c.endDate) {
@@ -4907,17 +3839,7 @@ function downloadLoanSummaryPDF(customerId) {
 
   doc.setFont("helvetica", "normal");
   doc.text("Investor Cost (Capital Liabilities)", 18, y + 6);
-  let invLabel = '';
-  if (c.loanType === 'monthly') {
-    invLabel = "Share: 66.7%";
-  } else {
-    if (c.dailyMethod === 'custom') {
-      invLabel = `Share: Rs. ${(Number(c.dailyInvestorPayout) || 0).toFixed(2)}/day`;
-    } else {
-      const invPct = c.investorSplitPercent !== undefined && c.investorSplitPercent !== null ? Number(c.investorSplitPercent).toFixed(1) : '50.0';
-      invLabel = `Share: ${invPct}%`;
-    }
-  }
+  const invLabel = "Share: 66.7%";
   doc.text(invLabel, 90, y + 6);
   doc.text(`-${invCost.toLocaleString('en-IN')}`, 192, y + 6, { align: "right" });
   y += 8;
@@ -4925,21 +3847,7 @@ function downloadLoanSummaryPDF(customerId) {
 
   doc.setFont("helvetica", "normal");
   doc.text("Agent Referral Commission", 18, y + 6);
-  let agLabel = '';
-  if (c.hasAgent) {
-    if (c.loanType === 'monthly') {
-      agLabel = `Referral: ${c.agentName} (16.7%)`;
-    } else {
-      if (c.dailyMethod === 'custom') {
-        agLabel = `Referral: ${c.agentName} (Rs. ${(Number(c.dailyAgentPayout) || 0).toFixed(2)}/day)`;
-      } else {
-        const agPct = c.agentSplitPercent !== undefined && c.agentSplitPercent !== null ? Number(c.agentSplitPercent).toFixed(1) : '25.0';
-        agLabel = `Referral: ${c.agentName} (${agPct}%)`;
-      }
-    }
-  } else {
-    agLabel = "No Referral Agent";
-  }
+  const agLabel = c.hasAgent ? `Referral: ${c.agentName} (16.7%)` : "No Referral Agent";
   const agLines = doc.splitTextToSize(agLabel, 95);
   doc.text(agLines, 90, y + 6);
   doc.text(`-${agComm.toLocaleString('en-IN')}`, 192, y + 6, { align: "right" });
@@ -4953,14 +3861,8 @@ function downloadLoanSummaryPDF(customerId) {
   doc.setFont("helvetica", "bold");
   doc.text("Owner's Net Profit", 18, y + 6);
   
-  let ownLabel = '';
-  if (c.loanType === 'monthly') {
-    const ownPct = c.hasAgent ? '16.7' : '33.3';
-    ownLabel = `Arbitrage Margin: ${ownPct}%`;
-  } else {
-    const { ownerDailyRate } = getDailyRates(c);
-    ownLabel = `Arbitrage Margin: Rs. ${ownerDailyRate.toFixed(2)}/day`;
-  }
+  const ownPct = c.hasAgent ? '16.7' : '33.3';
+  const ownLabel = `Arbitrage Margin: ${ownPct}%`;
   const ownLines = doc.splitTextToSize(ownLabel, 95);
   doc.text(ownLines, 90, y + 6);
   doc.setTextColor(16, 185, 129);
@@ -5111,15 +4013,9 @@ function downloadCustomerReceiptPDF(customerId) {
   
   const fromVal = document.getElementById('drFrom')?.value || startD;
   const toVal = document.getElementById('drTo')?.value || (c.status === 'closed' ? (c.endDate || today) : today);
-  const days = c.loanType === 'daily' ? daysBetweenInclusive(fromVal, toVal) : Math.max(1, daysBetween(fromVal, toVal));
+  const days = Math.max(1, daysBetween(fromVal, toVal));
 
-  let grossInterest = 0;
-  if (c.loanType === 'monthly') {
-    grossInterest = Math.max(0, getAccruedInterestUpTo(c, toVal) - getAccruedInterestUpTo(c, fromVal));
-  } else { // daily
-    const dm = getDailyAccruedMetricsForRange(c, fromVal, toVal);
-    grossInterest = dm.gross;
-  }
+  const grossInterest = Math.max(0, getAccruedInterestUpTo(c, toVal) - getAccruedInterestUpTo(c, fromVal));
 
   const interestPaid = Number(c.paidInterest) || 0;
   const principalPaid = Number(c.paidPrincipal) || 0;
@@ -5196,7 +4092,7 @@ function downloadCustomerReceiptPDF(customerId) {
   doc.setFont("helvetica", "normal");
   doc.text("Loan Type:", 110, y);
   doc.setFont("helvetica", "bold");
-  doc.text(c.loanType === 'monthly' ? "Monthly Interest" : "Daily Interest", 145, y);
+  doc.text("Monthly Interest", 145, y);
   y += 7;
 
   doc.setFont("helvetica", "normal");
@@ -5207,7 +4103,7 @@ function downloadCustomerReceiptPDF(customerId) {
   doc.setFont("helvetica", "normal");
   doc.text("Interest Rate:", 110, y);
   doc.setFont("helvetica", "bold");
-  doc.text(c.loanType === 'monthly' ? "3% per month" : `Rs. ${c.dailyInterestRate !== undefined && c.dailyInterestRate !== null ? c.dailyInterestRate : c.dailyRate} per day`, 145, y);
+  doc.text("3% per month", 145, y);
   y += 7;
 
   if (c.endDate) {
@@ -5428,88 +4324,7 @@ function updateCustomerPayment(customerId) {
   renderDetailPanel();
 }
 
-// ── DAILY METHOD CONTROLS ─────────────────────────────────────
-/** Switch between 'split' and 'custom' methods for a daily loan and re-render */
-function switchDailyMethod(customerId, method) {
-  const c = state.customers.find(x => x.id === customerId);
-  if (!c || c.loanType !== 'daily') return;
-  const idx = state.customers.findIndex(x => x.id === customerId);
-  state.customers[idx] = { ...c, dailyMethod: method };
-  dbSaveCustomer(state.customers[idx]);
-  renderDetailPanel();
-}
 
-/** Update custom daily payouts as user types, debounced via 300ms */
-let _dmDebounce = null;
-function updateDailyMethod(customerId) {
-  clearTimeout(_dmDebounce);
-  _dmDebounce = setTimeout(() => {
-    const c = state.customers.find(x => x.id === customerId);
-    if (!c || c.loanType !== 'daily') return;
-    const invEl   = document.getElementById('dmInvestorPayout');
-    const agtEl   = document.getElementById('dmAgentPayout');
-    const invVal  = invEl  ? Number(invEl.value)  || null : c.dailyInvestorPayout;
-    const agtVal  = agtEl  ? Number(agtEl.value)  || null : c.dailyAgentPayout;
-    const idx = state.customers.findIndex(x => x.id === customerId);
-    state.customers[idx] = { ...c, dailyInvestorPayout: invVal, dailyAgentPayout: agtVal };
-    dbSaveCustomer(state.customers[idx]);
-    renderDetailPanel();
-  }, 300);
-}
-
-function toggleDailyLoanInterestPaid(customerId) {
-  const todayStr = getLocalToday();
-  toggleDailyDatePaid(customerId, todayStr);
-}
-
-function toggleDailyDatePaid(customerId, dateStr) {
-  const c = state.customers.find(x => x.id === customerId);
-  if (!c) return;
-  const idx = state.customers.findIndex(x => x.id === customerId);
-  if (!c.dailyPaidDates) {
-    c.dailyPaidDates = [];
-  }
-  const paidDates = [...c.dailyPaidDates];
-  const dateIdx = paidDates.indexOf(dateStr);
-  
-  ensureCustomerPaymentsInitialized(c);
-  let updatedPayments = [...c.payments];
-  const rate = Number(c.dailyInterestRate !== undefined && c.dailyInterestRate !== null ? c.dailyInterestRate : (c.dailyRate || 0));
-  
-  if (dateIdx > -1) {
-    // Unchecking: remove from paidDates and find the corresponding interest payment for this date
-    paidDates.splice(dateIdx, 1);
-    const payIdx = updatedPayments.findIndex(p => p.type === 'interest' && p.date === dateStr);
-    if (payIdx > -1) {
-      updatedPayments.splice(payIdx, 1);
-    }
-  } else {
-    // Checking: add to paidDates and add an interest payment for this date
-    paidDates.push(dateStr);
-    updatedPayments.push({
-      id: 'pay_int_' + Math.random().toString(36).substr(2, 9),
-      date: dateStr,
-      amount: rate,
-      type: 'interest',
-      status: 'Paid'
-    });
-  }
-  
-  const paidInterest = updatedPayments.filter(p => p.type === 'interest').reduce((s, p) => s + p.amount, 0);
-  const paidPrincipal = updatedPayments.filter(p => p.type === 'principal').reduce((s, p) => s + p.amount, 0);
-  
-  state.customers[idx] = {
-    ...c,
-    dailyPaidDates: paidDates,
-    payments: updatedPayments,
-    paidInterest,
-    paidPrincipal
-  };
-  
-  dbSaveCustomer(state.customers[idx]);
-  renderCustomerList();
-  renderDetailPanel();
-}
 
 function updateDynamicRemainingInterest() {
   const typeEl = document.getElementById('recPaymentType');
@@ -5532,91 +4347,7 @@ function updateDynamicRemainingInterest() {
   }
 }
 
-function addDailyPayment(customerId) {
-  const c = state.customers.find(x => x.id === customerId);
-  if (!c) return;
-  const typeEl = document.getElementById('recPaymentType');
-  const amountEl = document.getElementById('recPaymentAmount');
-  const dateEl = document.getElementById('recPaymentDate');
-  if (!typeEl || !amountEl || !dateEl) return;
 
-  const type = typeEl.value;
-  const amount = parseFloat(amountEl.value) || 0;
-  const date = dateEl.value;
-
-  if (amount <= 0) {
-    showToast("Please enter a valid amount", "error");
-    return;
-  }
-  if (!date) {
-    showToast("Please select a date", "error");
-    return;
-  }
-
-  const idx = state.customers.findIndex(x => x.id === customerId);
-  ensureCustomerPaymentsInitialized(c);
-
-  const newPayment = {
-    id: 'pay_' + Math.random().toString(36).substr(2, 9),
-    date,
-    amount,
-    type,
-    status: 'Paid'
-  };
-
-  const updatedPayments = [...c.payments, newPayment];
-  const paidInterest = updatedPayments.filter(p => p.type === 'interest').reduce((s, p) => s + p.amount, 0);
-  const paidPrincipal = updatedPayments.filter(p => p.type === 'principal').reduce((s, p) => s + p.amount, 0);
-
-  state.customers[idx] = {
-    ...c,
-    payments: updatedPayments,
-    paidInterest,
-    paidPrincipal
-  };
-
-  dbSaveCustomer(state.customers[idx]);
-  renderCustomerList();
-  renderDetailPanel();
-  showToast("Payment recorded successfully", "success");
-}
-
-function deleteDailyPayment(customerId, paymentId) {
-  const c = state.customers.find(x => x.id === customerId);
-  if (!c) return;
-  
-  if (!confirm("Are you sure you want to delete this payment?")) return;
-
-  const idx = state.customers.findIndex(x => x.id === customerId);
-  ensureCustomerPaymentsInitialized(c);
-
-  const deletedPayment = c.payments.find(p => p.id === paymentId);
-  const updatedPayments = c.payments.filter(p => p.id !== paymentId);
-  
-  const paidInterest = updatedPayments.filter(p => p.type === 'interest').reduce((s, p) => s + p.amount, 0);
-  const paidPrincipal = updatedPayments.filter(p => p.type === 'principal').reduce((s, p) => s + p.amount, 0);
-
-  let dailyPaidDates = [...(c.dailyPaidDates || [])];
-  if (deletedPayment && deletedPayment.type === 'interest') {
-    const dIdx = dailyPaidDates.indexOf(deletedPayment.date);
-    if (dIdx > -1) {
-      dailyPaidDates.splice(dIdx, 1);
-    }
-  }
-
-  state.customers[idx] = {
-    ...c,
-    payments: updatedPayments,
-    paidInterest,
-    paidPrincipal,
-    dailyPaidDates
-  };
-
-  dbSaveCustomer(state.customers[idx]);
-  renderCustomerList();
-  renderDetailPanel();
-  showToast("Payment deleted", "info");
-}
 
 
 function calcDateRange(customerId) {
@@ -5628,61 +4359,11 @@ function calcDateRange(customerId) {
   const brkEl = document.getElementById('drBreakdown');
   if (!from || !to || !amtEl) return;
 
-  const days = c.loanType === 'daily' ? daysBetweenInclusive(from, to) : daysBetween(from, to);
-  const p    = Number(c.principal);
-  let interest = 0;
-  let breakdown = '';
-  const dayLabel = t('days_suffix');
-
-  if (c.loanType === 'monthly') {
-    interest = Math.max(0, getAccruedInterestUpTo(c, to) - getAccruedInterestUpTo(c, from));
-    breakdown = `Accrued interest between ${fmtDate(from)} and ${fmtDate(to)} (Monthly cycles)`;
-    amtEl.textContent = fmt(Math.round(interest));
-    if (brkEl) brkEl.textContent = days > 0 ? breakdown : t('select_valid_date_range');
-  } else {
-    // daily: use selected method (split or custom)
-    const dm = getDailyAccruedMetricsForRange(c, from, to);
-    interest  = dm.gross;
-    breakdown = `${state.lang === 'ta' ? 'தினசரி வட்டி' : 'Accrued daily interest'} (${days} ${dayLabel}, ${state.lang === 'ta' ? 'உள்ளடக்கியது' : 'inclusive'})`;
-    amtEl.textContent = fmt(Math.round(interest));
-    if (brkEl) brkEl.textContent = days > 0 ? breakdown : t('select_valid_date_range');
-    
-    // Also refresh the profit split section if dates changed
-    const splitEl = document.getElementById('dmBreakdown');
-    if (splitEl && days > 0) {
-      const langIsTA = state.lang === 'ta';
-      const method   = c.dailyMethod || 'split';
-      
-      const { rate: grossDailyInterest, invPayout: dayInv, agentPayout: dayAgent, ownerDailyRate: currentOwnerRate } = getDailyRates(c);
-
-      splitEl.innerHTML = `
-        <div class="profit-row gross">
-          <span class="profit-row-label">${langIsTA ? 'மொத்த வட்டி' : 'Gross Interest'} (${days} ${dayLabel})</span>
-          <span class="profit-row-amount">${fmt(dm.gross)}</span>
-        </div>
-        <div class="profit-row deduct">
-          <span class="profit-row-label">
-            ${langIsTA ? 'முதலீட்டாளர் பங்கு' : 'Investor Share'} (₹${dayInv}/day)
-          </span>
-          <span class="profit-row-amount">−${fmt(dm.investorCost)}</span>
-        </div>
-        ${dayAgent > 0 || c.hasAgent ? `
-        <div class="profit-row deduct-agent">
-          <span class="profit-row-label">
-            ${langIsTA ? 'முகவர் பங்கு' : 'Agent Share'} (₹${dayAgent}/day)
-          </span>
-          <span class="profit-row-amount">−${fmt(dm.agentPay)}</span>
-        </div>` : ''}
-        <div class="profit-row net">
-          <span class="profit-row-label" style="font-weight:800">
-            ${langIsTA ? 'உரிமையாளர் பங்கு' : 'Owner Share'} (₹${currentOwnerRate.toFixed(2)}/day)
-          </span>
-          <span class="profit-row-amount" style="font-weight:800">${fmt(dm.ownerNet)}</span>
-        </div>
-      `;
-    }
-
-  }
+  const days = daysBetween(from, to);
+  const interest = Math.max(0, getAccruedInterestUpTo(c, to) - getAccruedInterestUpTo(c, from));
+  const breakdown = `Accrued interest between ${fmtDate(from)} and ${fmtDate(to)} (Monthly cycles)`;
+  amtEl.textContent = fmt(Math.round(interest));
+  if (brkEl) brkEl.textContent = days > 0 ? breakdown : t('select_valid_date_range');
 }
 
 function renderDateRangeResult(from, to) {
@@ -5790,36 +4471,16 @@ function updateFormSplitPercentages() {
       agShare = 0;
     }
     
-    const isMonthly = document.getElementById('ltMonthly').classList.contains('selected');
-    if (!isMonthly) {
-      // Daily loan: splits in Rupees per day
-      const principal = parseFloat(document.getElementById('cfPrincipal').value) || 0;
-      const dailyRate = parseFloat(document.getElementById('cfDailyRate').value) || 0;
-      const grossDailyInterest = dailyRate;
-      const ownShare = Math.max(0, grossDailyInterest - invShare - agShare);
-      document.getElementById('cfOwnerSplitPercent').value = ownShare.toFixed(2);
-    } else {
-      // Monthly: splits in percentage
-      const ownShare = Math.max(0, 100 - invShare - agShare);
-      document.getElementById('cfOwnerSplitPercent').value = ownShare.toFixed(2);
-    }
+    // Monthly: splits in percentage
+    const ownShare = Math.max(0, 100 - invShare - agShare);
+    document.getElementById('cfOwnerSplitPercent').value = ownShare.toFixed(2);
   } finally {
     isUpdatingSplits = false;
   }
 }
 
 function applySplitDefaults(loanType, isAgentOn) {
-  const invInput = document.getElementById('cfInvestorSplitPercent');
-  const agInput = document.getElementById('cfAgentSplitPercent');
-  if (!invInput || !agInput) return;
-  if (loanType === 'daily') {
-    invInput.value = 0;
-    agInput.value = 0;
-  } else {
-    invInput.value = 66.67;
-    agInput.value = isAgentOn ? 16.67 : 0.00;
-  }
-  updateFormSplitPercentages();
+  // monthly-only: splits are fixed arbitrage, no user inputs needed
 }
 
 function setFirstMonthPaidToggle(on) {
@@ -5835,49 +4496,20 @@ function toggleFirstMonthPaid() {
   setFirstMonthPaidToggle(!isOn);
 }
 
-function setDailyInterestPaidToggle(on) {
-  const sw = document.getElementById('dailyInterestPaidSwitch');
-  if (sw) sw.classList.toggle('on', on);
-  updateUpfrontInterestPaidAmount();
-}
-
-function toggleDailyInterestPaid() {
-  const sw = document.getElementById('dailyInterestPaidSwitch');
-  if (!sw) return;
-  const isOn = sw.classList.contains('on');
-  setDailyInterestPaidToggle(!isOn);
-}
-
 function updateUpfrontInterestPaidAmount() {
-  const isMonthly = document.getElementById('ltMonthly').classList.contains('selected');
   const fSwitch = document.getElementById('firstMonthPaidSwitch');
-  const dSwitch = document.getElementById('dailyInterestPaidSwitch');
   const initPaidInput = document.getElementById('cfInitialPaid');
   if (!initPaidInput) return;
   
-  if (isMonthly) {
-    if (fSwitch && fSwitch.classList.contains('on')) {
-      const principal = Number(document.getElementById('cfPrincipal').value) || 0;
-      initPaidInput.value = Math.round(principal * 3 / 100);
-    }
-  } else {
-    if (dSwitch && dSwitch.classList.contains('on')) {
-      const principal = Number(document.getElementById('cfPrincipal').value) || 0;
-      const rate = Number(document.getElementById('cfDailyRate').value) || 0;
-      const startD = document.getElementById('cfStartDate').value;
-      const endD = document.getElementById('cfEndDate').value || getLocalToday();
-      const days = daysBetween(startD, endD);
-      const interest = dailyInterest(principal, rate, Math.max(0, days));
-      initPaidInput.value = Math.round(interest);
-    }
+  if (fSwitch && fSwitch.classList.contains('on')) {
+    const principal = Number(document.getElementById('cfPrincipal').value) || 0;
+    initPaidInput.value = Math.round(principal * 3 / 100);
   }
 }
 
 function onInitialPaidInput() {
   const fSwitch = document.getElementById('firstMonthPaidSwitch');
   if (fSwitch) fSwitch.classList.remove('on');
-  const dSwitch = document.getElementById('dailyInterestPaidSwitch');
-  if (dSwitch) dSwitch.classList.remove('on');
 }
 
 function openCustomerForm(id = null) {
@@ -5897,33 +4529,19 @@ function openCustomerForm(id = null) {
     document.getElementById('cfAdaguId').value  = c.adaguId;
     document.getElementById('cfPrincipal').value = c.principal;
     document.getElementById('cfStartDate').value = formatDateForInput(c.startDate);
-    if (c.loanType === 'daily') {
-      document.getElementById('cfEndDate').value = formatDateForInput(c.endDate);
-    } else {
-      document.getElementById('cfEndDate').value = '';
-    }
+    document.getElementById('cfEndDate').value = '';
     document.getElementById('cfNotes').value    = c.notes || '';
-    // Loan type
-    selectLoanType(c.loanType);
-    if (c.loanType === 'daily') {
-      document.getElementById('cfDailyRate').value = c.dailyInterestRate !== undefined && c.dailyInterestRate !== null ? c.dailyInterestRate : c.dailyRate;
-    }
+    // Always monthly
+    selectLoanType('monthly');
     // Agent
     setAgentToggle(c.hasAgent);
     if (c.hasAgent) {
       document.getElementById('cfAgentName').value = c.agentName || '';
       document.getElementById('cfAgentCommissionRate').value = c.agentCommissionRate !== undefined && c.agentCommissionRate !== null ? c.agentCommissionRate : 0.5;
-      if (c.loanType === 'daily') {
-        selectCommissionType(c.agentCommissionType || 'monthly');
-      }
     } else {
       document.getElementById('cfAgentCommissionRate').value = 0.5;
-      selectCommissionType('monthly');
     }
-    // Load split percentages
-    document.getElementById('cfInvestorSplitPercent').value = c.investorPerDayRate !== undefined && c.investorPerDayRate !== null ? c.investorPerDayRate : (c.investorSplitPercent !== undefined && c.investorSplitPercent !== null ? c.investorSplitPercent : (c.loanType === 'daily' ? 0 : 66.67));
-    document.getElementById('cfAgentSplitPercent').value = c.agentPerDayRate !== undefined && c.agentPerDayRate !== null ? c.agentPerDayRate : (c.agentSplitPercent !== undefined && c.agentSplitPercent !== null ? c.agentSplitPercent : (c.loanType === 'daily' ? 0 : (c.hasAgent ? 16.67 : 0)));
-    updateFormSplitPercentages();
+    selectCommissionType('monthly');
 
     // Load Photo
     if (c.jewelPhoto) {
@@ -5934,7 +4552,6 @@ function openCustomerForm(id = null) {
 
     // Load initial paid
     setFirstMonthPaidToggle(false);
-    setDailyInterestPaidToggle(false);
     document.getElementById('cfInitialPaid').value = c.paidInterest || 0;
   } else {
     selectLoanType('monthly');
@@ -5946,7 +4563,6 @@ function openCustomerForm(id = null) {
     
     // Default split percentages for new customer (will be applied by selectLoanType / setAgentToggle calling applySplitDefaults)
     setFirstMonthPaidToggle(false);
-    setDailyInterestPaidToggle(false);
     document.getElementById('cfInitialPaid').value = 0;
   }
 
@@ -5954,42 +4570,18 @@ function openCustomerForm(id = null) {
 }
 
 function selectLoanType(type) {
-  document.getElementById('ltMonthly').classList.toggle('selected', type === 'monthly');
-  document.getElementById('ltDaily').classList.toggle('selected', type === 'daily');
-  document.getElementById('dailyRateSection').style.display = type === 'daily' ? 'flex' : 'none';
-  document.getElementById('dailyEndDateSection').style.display = type === 'daily' ? 'flex' : 'none';
-  
-  // Profit split config: only for daily loans (monthly uses fixed arbitrage)
-  const splitSec = document.getElementById('splitPercentSection');
-  if (splitSec) splitSec.style.display = type === 'daily' ? 'block' : 'none';
-  
-  // Update upfront paid checkboxes visibility
-  document.getElementById('firstMonthPaidSection').style.display = type === 'monthly' ? 'block' : 'none';
-  document.getElementById('dailyInterestPaidSection').style.display = type === 'daily' ? 'block' : 'none';
-  
-  // Agent section always visible for both loan types
+  // Monthly-only: always select monthly
+  document.getElementById('ltMonthly').classList.add('selected');
+  document.getElementById('firstMonthPaidSection').style.display = 'block';
   document.getElementById('agentSection').style.display = 'block';
   updateAgentFieldsVisibility();
-  
-  if (type === 'monthly') {
-    document.getElementById('rateInfoBox').innerHTML = `
+  const rateInfoBox = document.getElementById('rateInfoBox');
+  if (rateInfoBox) rateInfoBox.innerHTML = `
       <div class="alert alert-info" style="margin:0">
         <span class="alert-icon"><svg class="ui-icon" style="width:16px;height:16px" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg></span>
         <div>Customer rate: <strong>3%/month</strong>. Split: 2% investor + 1% owner (or 0.5% agent + 0.5% owner if referred)</div>
       </div>`;
-    selectCommissionType('monthly');
-  } else {
-    document.getElementById('rateInfoBox').innerHTML = `
-      <div class="alert alert-warning" style="margin:0">
-        <span class="alert-icon"><svg class="ui-icon" style="width:16px;height:16px;color:var(--amber-400)" viewBox="0 0 24 24"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg></span>
-        <div>Daily interest loan. Set custom daily rate. If a referral agent is involved, enable the toggle below to choose monthly or daily commission.</div>
-      </div>`;
-  }
-
-  // Update default splits on type toggle for new customers
-  if (!editingCustomerId) {
-    applySplitDefaults(type, document.getElementById('agentSwitch')?.classList.contains('on'));
-  }
+  selectCommissionType('monthly');
 }
 
 function setAgentToggle(on) {
@@ -6003,15 +4595,13 @@ function setAgentToggle(on) {
 
   // Update default splits on agent toggle for new customers, or recompute splits for existing customers
   if (!editingCustomerId) {
-    const isDaily = document.getElementById('ltDaily').classList.contains('selected');
-    applySplitDefaults(isDaily ? 'daily' : 'monthly', on);
+    applySplitDefaults('monthly', on);
   } else {
     updateFormSplitPercentages();
   }
 }
 
 function updateAgentFieldsVisibility() {
-  const isDaily = document.getElementById('ltDaily').classList.contains('selected');
   const isAgentOn = document.getElementById('agentSwitch')?.classList.contains('on');
   
   const nameRow = document.getElementById('agentNameRow');
@@ -6020,29 +4610,21 @@ function updateAgentFieldsVisibility() {
   
   if (nameRow) {
     nameRow.style.display = isAgentOn ? 'grid' : 'none';
-    if (isDaily) {
-      nameRow.classList.add('cols-1');
-    } else {
-      nameRow.classList.remove('cols-1');
-    }
+    nameRow.classList.remove('cols-1');
   }
   
   if (rateGroup) {
-    rateGroup.style.display = (!isDaily && isAgentOn) ? 'block' : 'none';
+    rateGroup.style.display = isAgentOn ? 'block' : 'none';
   }
   
   if (commissionTypeRow) {
-    commissionTypeRow.style.display = 'none'; // Always hide it for both since Daily is Rupee-only and Monthly is fixed %
+    commissionTypeRow.style.display = 'none'; // Always hide it for monthly fixed %
   }
 }
 
 function selectCommissionType(type) {
-  document.getElementById('ctMonthly').classList.toggle('selected', type === 'monthly');
-  document.getElementById('ctDaily').classList.toggle('selected', type === 'daily');
-  document.getElementById('ctMonthly').setAttribute('aria-pressed', type === 'monthly');
-  document.getElementById('ctDaily').setAttribute('aria-pressed', type === 'daily');
   const suffix = document.getElementById('agentRateSuffix');
-  if (suffix) suffix.textContent = type === 'daily' ? '%/day' : '%/mo';
+  if (suffix) suffix.textContent = '%/mo';
 }
 
 function toggleAgent() {
@@ -6083,7 +4665,7 @@ function confirmDeleteCustomer(id) {
 
 function submitCustomerForm() {
   const f = document.getElementById('customerForm');
-  const loanType = document.getElementById('ltMonthly').classList.contains('selected') ? 'monthly' : 'daily';
+  const loanType = 'monthly';
   const hasAgent = document.getElementById('agentSwitch').classList.contains('on');
 
   const data = {
@@ -6092,17 +4674,13 @@ function submitCustomerForm() {
     adaguId:   document.getElementById('cfAdaguId').value,
     principal: document.getElementById('cfPrincipal').value,
     loanType,
-    dailyRate: document.getElementById('cfDailyRate').value,
     startDate: document.getElementById('cfStartDate').value,
-    endDate:   loanType === 'daily' ? document.getElementById('cfEndDate').value : null,
+    endDate:   null,
     hasAgent,
     agentName: document.getElementById('cfAgentName').value,
     agentCommissionRate: hasAgent ? (parseFloat(document.getElementById('cfAgentCommissionRate').value) || 0.5) : null,
-    agentCommissionType: hasAgent && loanType === 'daily' ? (document.getElementById('ctDaily').classList.contains('selected') ? 'daily' : 'monthly') : 'monthly',
+    agentCommissionType: 'monthly',
     notes:     document.getElementById('cfNotes').value,
-    investorSplitPercent: loanType === 'daily' ? (parseFloat(document.getElementById('cfInvestorSplitPercent').value) || 0) : null,
-    agentSplitPercent: loanType === 'daily' && hasAgent ? (parseFloat(document.getElementById('cfAgentSplitPercent').value) || 0) : null,
-    ownerSplitPercent: loanType === 'daily' ? (parseFloat(document.getElementById('cfOwnerSplitPercent').value) || 0) : null,
     jewelPhoto: uploadedJewelPhotoBase64,
     paidInterest: parseFloat(document.getElementById('cfInitialPaid').value) || 0,
     paidPrincipal: editingCustomerId ? undefined : 0
@@ -6115,10 +4693,6 @@ function submitCustomerForm() {
   }
   if (Number(data.principal) <= 0) {
     showToast(t('toast_principal_positive'), 'error');
-    return;
-  }
-  if (loanType === 'daily' && (!data.dailyRate || Number(data.dailyRate) <= 0)) {
-    showToast(t('toast_valid_daily_rate'), 'error');
     return;
   }
   if (hasAgent && !data.agentName.trim()) {
@@ -6319,7 +4893,7 @@ function renderAgents() {
       <div style="border-top:1px solid var(--border-default);padding-top:10px">
         ${agent.customers.map(c => `
           <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.04);font-size:13px">
-            <span style="color:var(--text-secondary)">${escHtml(c.name)} <span class="tag">#${escHtml(c.adaguId)}</span>${c.loanType === 'daily' ? ' <span class="tag" style="color:var(--amber-400);border-color:var(--amber-400)">₹' + (c.agentSplitPercent || 0) + '/day</span>' : ''}</span>
+            <span style="color:var(--text-secondary)">${escHtml(c.name)} <span class="tag">#${escHtml(c.adaguId)}</span></span>
             <span style="color:var(--violet-400);font-weight:600">${fmt(agentCommission(c))}</span>
           </div>
         `).join('')}
@@ -6406,8 +4980,8 @@ function seedDemoData() {
   addCustomer({ name: 'Priya Rangan',     phone: '9643210987', adaguId: 'ADG-004', principal: 100000, loanType: 'monthly', startDate: d(15), hasAgent: true,  agentName: 'Velu',    notes: '3 gold chains' });
   addCustomer({ name: 'Anbalagan M',      phone: '9532109876', adaguId: 'ADG-005', principal: 25000,  loanType: 'monthly', startDate: d(20), hasAgent: true,  agentName: 'Kannan',  notes: 'Gold ring + earring' });
   addCustomer({ name: 'Kavitha Sundaram', phone: '9421098765', adaguId: 'ADG-006', principal: 60000,  loanType: 'monthly', startDate: d(10), hasAgent: false, agentName: '', notes: 'Diamond earrings' });
-  addCustomer({ name: 'Ramu Krishnan',    phone: '9310987654', adaguId: 'ADG-007', principal: 40000,  loanType: 'daily',   startDate: d(12), dailyRate: 60, hasAgent: false, agentName: '', notes: 'Emergency loan' });
-  addCustomer({ name: 'Sundari Bai',      phone: '9209876543', adaguId: 'ADG-008', principal: 20000,  loanType: 'daily',   startDate: d(8),  dailyRate: 24, hasAgent: false, agentName: '', notes: '10 gm gold chain' });
+  addCustomer({ name: 'Ramu Krishnan',    phone: '9310987654', adaguId: 'ADG-007', principal: 40000,  loanType: 'monthly', startDate: d(12), hasAgent: false, agentName: '', notes: 'Emergency loan' });
+  addCustomer({ name: 'Sundari Bai',      phone: '9209876543', adaguId: 'ADG-008', principal: 20000,  loanType: 'monthly', startDate: d(8),  hasAgent: false, agentName: '', notes: '10 gm gold chain' });
 }
 
 /* ─── FIREBASE AUTHENTICATION FLOW ─────────────────────────── */
@@ -6601,6 +5175,24 @@ function startFirestoreSync(uid) {
       snapshot.forEach(doc => {
         const c = doc.data();
         ensureCustomerPaymentsInitialized(c);
+        
+        // Sanitization: Filter out payment logs prior to June 1st, 2026
+        if (c.payments) {
+          const initialLength = c.payments.length;
+          c.payments = c.payments.filter(p => p.date >= '2026-06-01');
+          if (c.payments.length !== initialLength) {
+            db.collection('users').doc(uid).collection('customers').doc(c.id).update({
+              payments: c.payments,
+              paidInterest: getCustomerPaidInterest(c),
+              paidPrincipal: getCustomerPaidPrincipal(c)
+            }).then(() => {
+              console.log(`Sanitized payments in Firestore for customer ${c.name}`);
+            }).catch(err => {
+              console.error(`Error sanitizing customer ${c.name} payments:`, err);
+            });
+          }
+        }
+        
         c.paidInterest = getCustomerPaidInterest(c);
         c.paidPrincipal = getCustomerPaidPrincipal(c);
         customers.push(c);
@@ -6629,7 +5221,21 @@ function startFirestoreSync(uid) {
         const data = doc.data();
         state.sheetSyncUrl = data.sheetSyncUrl || '';
         state.sheetSyncEnabled = !!data.sheetSyncEnabled;
-        state.monthlyArchives = data.monthlyArchives || [];
+        
+        // Sanitization: Filter out monthly archives prior to June 2026
+        let monthlyArchives = data.monthlyArchives || [];
+        const initialCount = monthlyArchives.length;
+        monthlyArchives = monthlyArchives.filter(a => a.month >= '2026-06');
+        if (monthlyArchives.length !== initialCount) {
+          db.collection('users').doc(uid).collection('settings').doc('config').update({
+            monthlyArchives
+          }).then(() => {
+            console.log("Sanitized monthly archives in Firestore");
+          }).catch(err => {
+            console.error("Error sanitizing monthly archives in Firestore:", err);
+          });
+        }
+        state.monthlyArchives = monthlyArchives;
         state.lastActiveMonth = data.lastActiveMonth || '';
       }
       isSettingsLoaded = true;
@@ -6899,31 +5505,22 @@ async function pullFromGoogleSheet() {
     const customers = payload.customers || [];
     const investors = payload.investors || [];
     
-    // Format numeric and boolean values correctly
     const formattedCustomers = customers.map(c => ({
       id: c.id || genId(),
       name: c.name || '',
       phone: c.phone || '',
       adaguId: c.adaguId || '',
       startDate: c.startDate || getLocalToday(),
-      endDate: c.endDate || null,
+      endDate: null,
       principal: parseFloat(c.principal) || 0,
-      loanType: c.loanType === 'daily' ? 'daily' : 'monthly',
-      dailyRate: parseFloat(c.dailyRate) || 0,
-      dailyInterestRate: c.dailyInterestRate !== undefined && c.dailyInterestRate !== '' && c.dailyInterestRate !== null ? parseFloat(c.dailyInterestRate) : (parseFloat(c.dailyRate) || 0),
+      loanType: 'monthly',
       hasAgent: String(c.hasAgent).toLowerCase() === 'true',
       agentName: c.agentName || '',
       agentCommissionRate: c.agentCommissionRate !== undefined && c.agentCommissionRate !== '' && c.agentCommissionRate !== null ? parseFloat(c.agentCommissionRate) : null,
-      agentCommissionType: c.agentCommissionType === 'daily' ? 'daily' : 'monthly',
+      agentCommissionType: 'monthly',
       status: c.status || 'active',
       closedDate: c.closedDate || '',
       notes: c.notes || '',
-      investorSplitPercent: c.investorSplitPercent !== undefined && c.investorSplitPercent !== '' && c.investorSplitPercent !== null ? parseFloat(c.investorSplitPercent) : null,
-      agentSplitPercent: c.agentSplitPercent !== undefined && c.agentSplitPercent !== '' && c.agentSplitPercent !== null ? parseFloat(c.agentSplitPercent) : null,
-      ownerSplitPercent: c.ownerSplitPercent !== undefined && c.ownerSplitPercent !== '' && c.ownerSplitPercent !== null ? parseFloat(c.ownerSplitPercent) : null,
-      investorPerDayRate: c.investorPerDayRate !== undefined && c.investorPerDayRate !== '' && c.investorPerDayRate !== null ? parseFloat(c.investorPerDayRate) : (parseFloat(c.investorSplitPercent) || 0),
-      agentPerDayRate: c.agentPerDayRate !== undefined && c.agentPerDayRate !== '' && c.agentPerDayRate !== null ? parseFloat(c.agentPerDayRate) : (parseFloat(c.agentSplitPercent) || 0),
-      daysActive: c.daysActive !== undefined && c.daysActive !== '' && c.daysActive !== null ? parseInt(c.daysActive) : (c.loanType === 'daily' ? daysBetweenInclusive(c.startDate || getLocalToday(), c.endDate || getLocalToday()) : null),
       jewelPhoto: c.jewelPhoto || null,
       paidInterest: c.paidInterest !== undefined && c.paidInterest !== '' && c.paidInterest !== null ? parseFloat(c.paidInterest) : 0,
       paidPrincipal: c.paidPrincipal !== undefined && c.paidPrincipal !== '' && c.paidPrincipal !== null ? parseFloat(c.paidPrincipal) : 0
@@ -7155,14 +5752,7 @@ function confirmImport() {
     const p = Number(principalVal.replace(/[^0-9.]/g, ''));
     if (isNaN(p) || p <= 0) return;
 
-    const typeCol = mapping['loanType'];
-    let loanType = 'monthly';
-    if (typeCol !== undefined && row[typeCol]) {
-      const val = row[typeCol].toLowerCase().trim();
-      if (val.includes('daily') || val.includes('நாள்') || val === 'daily') {
-        loanType = 'daily';
-      }
-    }
+    const loanType = 'monthly';
 
     const dateCol = mapping['startDate'];
     let startDate = getLocalToday();
@@ -7216,10 +5806,8 @@ function confirmImport() {
       phone,
       adaguId: adaguVal.trim(),
       principal: p,
-      loanType,
-      dailyRate: loanType === 'daily' ? dailyRate : null,
+      loanType: 'monthly',
       startDate,
-      endDate: loanType === 'daily' ? endDate : null,
       hasAgent,
       agentName,
       agentCommissionRate: hasAgent ? agentCommissionRate : null,
@@ -7229,7 +5817,6 @@ function confirmImport() {
       paidInterest: 0,
       paidPrincipal: 0,
       payments: [],
-      dailyPaidDates: [],
       currentMonthInterestPaid: false,
       createdAt: new Date().toISOString()
     };
@@ -7343,7 +5930,6 @@ function init() {
 
   // Loan type toggle
   document.getElementById('ltMonthly').addEventListener('click', () => selectLoanType('monthly'));
-  document.getElementById('ltDaily').addEventListener('click', () => selectLoanType('daily'));
 
   // Customer filter tabs
   document.querySelectorAll('.cust-filter-tab').forEach(tab => {
