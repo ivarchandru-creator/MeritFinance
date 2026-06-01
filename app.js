@@ -3213,10 +3213,8 @@ function getAccruedInterest(c) {
 function getRemainingBalance(c) {
   if (!c) return 0;
   const p = Number(c.principal) || 0;
-  const interest = getAccruedInterest(c);
-  const paidI = Number(c.paidInterest) || 0;
   const paidP = Number(c.paidPrincipal) || 0;
-  return Math.round(p + interest - paidI - paidP);
+  return Math.round(p - paidP);
 }
 
 function openPhotoLightbox(customerId) {
@@ -3437,8 +3435,8 @@ function renderDetailPanel() {
   const rate = MONTHLY_CUSTOMER_RATE - INVESTOR_RATE - (c.hasAgent ? AGENT_COMMISSION_RATE : 0);
   const ownerFraction = rate / MONTHLY_CUSTOMER_RATE;
   const remainingP = Math.max(0, p - (c.paidPrincipal || 0));
-  const remainingI = (interestAccrued - (c.paidInterest || 0)) * ownerFraction;
-  const remainingTotal = remainingP + remainingI;
+  const remainingI = Math.max(0, (interestAccrued - (c.paidInterest || 0)) * ownerFraction);
+  const remainingTotal = remainingP;
 
   const langIsTA = state.lang === 'ta';
   const currentMonthHtml = `
@@ -3670,7 +3668,7 @@ function downloadLoanSummaryPDF(customerId) {
   const interestPaid = Number(c.paidInterest) || 0;
   const principalPaid = Number(c.paidPrincipal) || 0;
   const totalPaid = interestPaid + principalPaid;
-  const remaining = Math.max(0, Math.round(p + getAccruedInterest(c) - interestPaid - principalPaid));
+  const remaining = Math.max(0, Math.round(p - principalPaid));
 
   // Colors & Design
   // Header banner
@@ -4020,7 +4018,7 @@ function downloadCustomerReceiptPDF(customerId) {
   const interestPaid = Number(c.paidInterest) || 0;
   const principalPaid = Number(c.paidPrincipal) || 0;
   const totalPaid = interestPaid + principalPaid;
-  const remaining = Math.max(0, Math.round(p + getAccruedInterest(c) - interestPaid - principalPaid));
+  const remaining = Math.max(0, Math.round(p - principalPaid));
 
   // Colors & Design
   // Header banner (Dark Slate)
@@ -4340,7 +4338,7 @@ function updateDynamicRemainingInterest() {
   const baseRemaining = parseFloat(remainingDueEl.dataset.baseValue) || 0;
   const ownerFraction = parseFloat(remainingDueEl.dataset.ownerFraction) || 1;
   if (type === 'interest') {
-    const remaining = baseRemaining - (amount * ownerFraction);
+    const remaining = Math.max(0, baseRemaining - (amount * ownerFraction));
     remainingDueEl.textContent = (remaining >= 0 ? '+' : '') + fmt(remaining);
   } else {
     remainingDueEl.textContent = (baseRemaining >= 0 ? '+' : '') + fmt(baseRemaining);
