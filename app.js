@@ -1179,96 +1179,117 @@ function runMonthlyBillingCycleCheck() {
 }
 
 function addMonthlyPayment(customerId) {
-  const c = state.customers.find(x => x.id === customerId);
-  if (!c) return;
-  const typeEl = document.getElementById('recPaymentType');
-  const amountEl = document.getElementById('recPaymentAmount');
-  const dateEl = document.getElementById('recPaymentDate');
-  if (!typeEl || !amountEl || !dateEl) return;
+  try {
+    const c = state.customers.find(x => x.id === customerId);
+    if (!c) return;
+    const typeEl = document.getElementById('recPaymentType');
+    const amountEl = document.getElementById('recPaymentAmount');
+    const dateEl = document.getElementById('recPaymentDate');
+    if (!typeEl || !amountEl || !dateEl) return;
 
-  const type = typeEl.value;
-  const amount = roundFinancial(parseFloat(amountEl.value) || 0);
-  const date = dateEl.value;
+    const type = typeEl.value;
+    
+    // Defensive Fallback Checking (Null Value Prevention)
+    const parsedAmount = parseFloat(amountEl.value) || 0;
+    const currentAgentShare = parseFloat(c.agentSharePerDay || c.agentShare) || 0;
+    const currentInvestorShare = parseFloat(c.investorSharePerDay || c.investorShare) || 0;
+    const currentOwnerProfit = parseFloat(c.ownerProfit || ownerProfit(c)) || 0;
 
-  if (amount <= 0) {
-    showToast("Please enter a valid amount", "error");
-    return;
+    const amount = roundFinancial(parsedAmount);
+    const date = dateEl.value;
+
+    if (amount <= 0) {
+      showToast("Please enter a valid amount", "error");
+      return;
+    }
+    if (!date) {
+      showToast("Please select a date", "error");
+      return;
+    }
+
+    const idx = state.customers.findIndex(x => x.id === customerId);
+    // Index mismatch fallback to 0
+    const targetIdx = idx >= 0 ? idx : 0;
+
+    ensureCustomerPaymentsInitialized(c);
+
+    const newPayment = {
+      id: 'pay_' + Math.random().toString(36).substr(2, 9),
+      date,
+      amount,
+      type,
+      status: 'Paid'
+    };
+
+    const updatedPayments = [...(c.payments || []), newPayment];
+    const paidInterest = roundFinancial(updatedPayments.filter(p => p.type === 'interest').reduce((s, p) => s + (Number(p.amount) || 0), 0));
+    const paidPrincipal = roundFinancial(updatedPayments.filter(p => p.type === 'principal').reduce((s, p) => s + (Number(p.amount) || 0), 0));
+
+    const today = getLocalToday();
+    const hasInterestToday = updatedPayments.some(p => p.date === today && p.type === 'interest');
+    let dailyInterestPaidToday = c.dailyInterestPaidToday;
+    if (c.loanType === 'daily' && hasInterestToday) {
+      dailyInterestPaidToday = true;
+    }
+
+    state.customers[targetIdx] = {
+      ...c,
+      payments: updatedPayments,
+      paidInterest,
+      paidPrincipal,
+      dailyInterestPaidToday
+    };
+
+    dbSaveCustomer(state.customers[targetIdx]);
+    renderCustomerList();
+    renderDetailPanel();
+    renderDashboard();
+    showToast("Payment recorded successfully", "success");
+  } catch (error) {
+    console.error("Error in addMonthlyPayment: ", error);
   }
-  if (!date) {
-    showToast("Please select a date", "error");
-    return;
-  }
-
-  const idx = state.customers.findIndex(x => x.id === customerId);
-  ensureCustomerPaymentsInitialized(c);
-
-  const newPayment = {
-    id: 'pay_' + Math.random().toString(36).substr(2, 9),
-    date,
-    amount,
-    type,
-    status: 'Paid'
-  };
-
-  const updatedPayments = [...c.payments, newPayment];
-  const paidInterest = roundFinancial(updatedPayments.filter(p => p.type === 'interest').reduce((s, p) => s + (Number(p.amount) || 0), 0));
-  const paidPrincipal = roundFinancial(updatedPayments.filter(p => p.type === 'principal').reduce((s, p) => s + (Number(p.amount) || 0), 0));
-
-  const today = getLocalToday();
-  const hasInterestToday = updatedPayments.some(p => p.date === today && p.type === 'interest');
-  let dailyInterestPaidToday = c.dailyInterestPaidToday;
-  if (c.loanType === 'daily' && hasInterestToday) {
-    dailyInterestPaidToday = true;
-  }
-
-  state.customers[idx] = {
-    ...c,
-    payments: updatedPayments,
-    paidInterest,
-    paidPrincipal,
-    dailyInterestPaidToday
-  };
-
-  dbSaveCustomer(state.customers[idx]);
-  renderCustomerList();
-  renderDetailPanel();
-  renderDashboard();
-  showToast("Payment recorded successfully", "success");
 }
 
 function deleteMonthlyPayment(customerId, paymentId) {
-  const c = state.customers.find(x => x.id === customerId);
-  if (!c) return;
-  
-  if (!confirm("Are you sure you want to delete this payment?")) return;
+  try {
+    const c = state.customers.find(x => x.id === customerId);
+    if (!c) return;
+    
+    if (!confirm("Are you sure you want to delete this payment?")) return;
 
-  const idx = state.customers.findIndex(x => x.id === customerId);
-  ensureCustomerPaymentsInitialized(c);
+    const idx = state.customers.findIndex(x => x.id === customerId);
+    // Index mismatch fallback to 0
+    const targetIdx = idx >= 0 ? idx : 0;
+    
+    ensureCustomerPaymentsInitialized(c);
 
-  const updatedPayments = c.payments.filter(p => p.id !== paymentId);
-  const paidInterest = roundFinancial(updatedPayments.filter(p => p.type === 'interest').reduce((s, p) => s + (Number(p.amount) || 0), 0));
-  const paidPrincipal = roundFinancial(updatedPayments.filter(p => p.type === 'principal').reduce((s, p) => s + (Number(p.amount) || 0), 0));
+    const updatedPayments = (c.payments || []).filter(p => p.id !== paymentId);
+    const paidInterest = roundFinancial(updatedPayments.filter(p => p.type === 'interest').reduce((s, p) => s + (Number(p.amount) || 0), 0));
+    const paidPrincipal = roundFinancial(updatedPayments.filter(p => p.type === 'principal').reduce((s, p) => s + (Number(p.amount) || 0), 0));
 
-  const today = getLocalToday();
-  const remainsToday = updatedPayments.some(p => p.date === today && p.type === 'interest');
-  let dailyInterestPaidToday = c.dailyInterestPaidToday;
-  if (c.loanType === 'daily' && !remainsToday) {
-    dailyInterestPaidToday = false;
+    const today = getLocalToday();
+    const remainsToday = updatedPayments.some(p => p.date === today && p.type === 'interest');
+    let dailyInterestPaidToday = c.dailyInterestPaidToday;
+    if (c.loanType === 'daily' && !remainsToday) {
+      dailyInterestPaidToday = false;
+    }
+
+    state.customers[targetIdx] = {
+      ...c,
+      payments: updatedPayments,
+      paidInterest,
+      paidPrincipal,
+      dailyInterestPaidToday
+    };
+
+    dbSaveCustomer(state.customers[targetIdx]);
+    renderCustomerList();
+    renderDetailPanel();
+    renderDashboard();
+    showToast("Payment deleted", "info");
+  } catch (error) {
+    console.error("Error in deleteMonthlyPayment: ", error);
   }
-
-  state.customers[idx] = {
-    ...c,
-    payments: updatedPayments,
-    paidInterest,
-    paidPrincipal,
-    dailyInterestPaidToday
-  };
-
-  dbSaveCustomer(state.customers[idx]);
-  renderCustomerList();
-  renderDetailPanel();
-  renderDashboard();
-  showToast("Payment deleted", "info");
 }
 
 /* ─── BUSINESS LOGIC ────────────────────────────────────────── */
@@ -1825,15 +1846,16 @@ function addCustomer(data) {
   } else {
     c.agentCommissionRate = data.hasAgent ? Number(data.agentCommissionRate) : null;
     c.agentCommissionType = 'monthly';
-    c.currentMonthInterestPaid = false;
+    c.currentMonthInterestPaid = data.firstMonthPaid || false;
   }
 
   const startDate = data.startDate || getLocalToday();
-  if (Number(data.paidInterest) > 0) {
+  if (data.firstMonthPaid || Number(data.paidInterest) > 0) {
+    const amount = Number(data.paidInterest) || roundFinancial(Number(data.principal) * 3 / 100);
     c.payments.push({
       id: 'pay_init_int_' + Math.random().toString(36).substr(2, 9),
       date: startDate,
-      amount: Number(data.paidInterest),
+      amount,
       type: 'interest',
       status: 'Paid'
     });
@@ -3779,10 +3801,19 @@ function renderCustomerList() {
   const monthlyMobile = document.getElementById('monthlyMobileContainer');
   const dailyMobile = document.getElementById('dailyMobileContainer');
 
-  if (monthlyPort) monthlyPort.style.display = (activeFilter === 'daily') ? 'none' : 'block';
-  if (dailyPort) dailyPort.style.display = (activeFilter === 'monthly') ? 'none' : 'block';
-  if (monthlyMobile) monthlyMobile.style.display = (activeFilter === 'daily') ? 'none' : 'block';
-  if (dailyMobile) dailyMobile.style.display = (activeFilter === 'monthly') ? 'none' : 'block';
+  const isMobileViewport = window.innerWidth <= 768 || window.matchMedia('(max-width: 768px)').matches;
+
+  if (isMobileViewport) {
+    if (monthlyPort) monthlyPort.style.display = 'none';
+    if (dailyPort) dailyPort.style.display = 'none';
+    if (monthlyMobile) monthlyMobile.style.display = (activeFilter === 'daily') ? 'none' : 'block';
+    if (dailyMobile) dailyMobile.style.display = (activeFilter === 'monthly') ? 'none' : 'block';
+  } else {
+    if (monthlyPort) monthlyPort.style.display = (activeFilter === 'daily') ? 'none' : 'block';
+    if (dailyPort) dailyPort.style.display = (activeFilter === 'monthly') ? 'none' : 'block';
+    if (monthlyMobile) monthlyMobile.style.display = 'none';
+    if (dailyMobile) dailyMobile.style.display = 'none';
+  }
 
   function getRowHtml(c) {
     const p = Number(c.principal);
@@ -5982,7 +6013,8 @@ function submitCustomerForm() {
       notes:     document.getElementById('cfNotes').value,
       jewelPhoto: uploadedJewelPhotoBase64,
       paidInterest: parseFloat(document.getElementById('cfInitialPaid').value) || 0,
-      paidPrincipal: editingCustomerId ? undefined : 0
+      paidPrincipal: editingCustomerId ? undefined : 0,
+      firstMonthPaid: document.getElementById('firstMonthPaidSwitch')?.classList.contains('on') || false
     };
 
     // Validation
