@@ -670,18 +670,14 @@
       <input type="hidden" id="cfDailyRate" value="0" />
       <input type="hidden" id="cfEndDate" value="" />
 
-      <div class="form-grid upfront-payment-row" style="margin-bottom:14px;display:none !important">
-        <div class="form-group" id="firstMonthPaidSection" style="margin:0">
-          <div class="switch-row" onclick="toggleFirstMonthPaid()" role="checkbox" tabindex="0" aria-checked="false" id="firstMonthPaidSwitchRow" style="padding:6px 10px;height:38px">
-            <div class="switch-row-label">
-              <strong style="font-size:11px" data-i18n="label_first_month_paid">First Month Interest Paid?</strong>
-            </div>
-            <div class="switch" id="firstMonthPaidSwitch" aria-hidden="true"></div>
+      <!-- Hidden fields for compatibility with legacy JS references -->
+      <div style="display:none !important">
+        <div class="form-grid upfront-payment-row">
+          <div id="firstMonthPaidSection">
+            <div id="firstMonthPaidSwitch"></div>
+            <div id="firstMonthPaidSwitchRow"></div>
           </div>
-        </div>
-        <div class="form-group" style="margin:0">
-          <label class="form-label" for="cfInitialPaid" data-i18n="paid_interest_label" style="font-size:11px">Interest Paid (₹)</label>
-          <input type="number" id="cfInitialPaid" class="form-input" placeholder="0" min="0" step="1" style="height:38px" oninput="onInitialPaidInput()" />
+          <input type="number" id="cfInitialPaid" value="0" />
         </div>
       </div>
 
